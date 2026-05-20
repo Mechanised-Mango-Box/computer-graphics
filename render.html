@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Metaballs</title>
+    <style>
+        /* Make the page background black and text white */
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        /* Give the canvas a white stroke/border so its boundaries are visible */
+        canvas {
+            border: 2px solid #ffffff;
+            background-color: #000000;
+        }
+    </style>
+</head>
+<!-- https://www.desmos.com/calculator/9htu84hp9r -->
+
+<body>
+    <h1>Metaballs</h1>
+    <div>
+        <canvas id="canvas" width="1280" height="720"></canvas>
+        <div>
+            <label>Threshold</label>
+            <input type="range" id="thresholdSlider" min="0.00" max="1.5" step="0.01" value="0.50">
+        </div>
+    </div>
+    <script>
+        "use strict";
+        //#region Math
+        /**
+         * @param {number} a 
+         * @param {number} b
+         * @param {number} t
+         * @return {number}
+         * 
+         * @see {https://en.wikipedia.org/wiki/Linear_interpolation#Programming_language_support}
+         */
+        const lerp = (a, b, t) => (1 - t) * a + t * b;
+
+        /**
+         * @param {number} v
+         * @param {number} min
+         * @param {number} max
+         * @return {number}
+         */
+        const clamp = (v, min, max) => Math.max(min, Math.min(v, max))
+
+        /**
+         * @param {number} v
+         * @return {number}
+         */
+        const clamp01 = (v) => clamp(v, 0, 1)
+
+        /**
+         * @param {number} a 
+         * @param {number} b
+         * @param {number} k
+         * @return {number}
+         */
+        const smoothUnion = (a, b, k) => {
+            const h = clamp01(0.5 + 0.5 * (b - a) / k);
+            return lerp(b, a, h) - k * h * (1 - h);
+        };
+        const smoothIntersection = (a, b, k) => {
+            const h = clamp01(0.5 - 0.5 * (b - a) / k);
+            return lerp(a, b, h) + k * h * (1 - h);
+        };
+        const smoothDifference = (a, b, k) => {
+            const h = clamp01(0.5 - 0.5 * (b + a) / k);
+            return lerp(a, -b, h) + k * h * (1 - h);
+        };
+
+
+        /**
+         * @param {number} x0
+         * @param {number} y0
+         * @param {number} x1
+         * @param {number} y1
+         * @return {number}
+         */
+        const distanceSquared = (x0, y0, x1, y1) => (x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1);
+        //#endregion
+
+        //#region Globals
+        const METABALL_CONFIG = {
+            smoothRadius: 20,
+            threshold: 0
+        }
+        const CAMERA_CONFIG = {
+            move_speed: 500,
+            zoom_speed: 10,
+        }
+
+        /**
+         * @type{number}
+         */
+        let lastFrame = performance.now()
+        /**
+         * @type{number}
+         */
+        let delta = 0;
+        //#endregion
+
+        window.addEventListener("keydown", (e) => {
+            switch (e.key) {
+                case "ArrowUp":
+                    camera.y -= (CAMERA_CONFIG.move_speed / camera.zoom) * delta;
+                    break;
+                case "ArrowDown":
+                    camera.y += (CAMERA_CONFIG.move_speed / camera.zoom) * delta;
+                    break;
+                case "ArrowLeft":
+                    camera.x -= (CAMERA_CONFIG.move_speed / camera.zoom) * delta;
+                    break;
+                case "ArrowRight":
+                    camera.x += (CAMERA_CONFIG.move_speed / camera.zoom) * delta;
+                    break;
+                case "PageUp":
+                    camera.zoom += CAMERA_CONFIG.zoom_speed * delta;
+                    camera.zoom = Math.max(0, camera.zoom)
+                    break;
+                case "PageDown":
+                    camera.zoom -= CAMERA_CONFIG.zoom_speed * delta;
+                    camera.zoom = Math.max(0, camera.zoom)
+                    break;
+            }
+        });
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const clearScreen = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        /**
+         * @readonly
+         * @enum {number}
+         */
+        const ShapeType = {
+            CIRCLE: 0,
+            SQUARE: 1
+        };
+
+        /**
+         * @typedef {Object} AABB
+         * 
+         * @property {number} x_min
+         * @property {number} y_min
+         * @property {number} x_max
+         * @property {number} y_max
+         */
+
+        /**
+         * @typedef {Object} Shape
+         * @property {ShapeType} type 
+         * 
+         * @property {number} x
+         * @property {number} y
+         * 
+         * @property {number} v_x
+         * @property {number} v_y
+         * 
+         * @property {AABB} aabb
+         */
+
+
+        /**
+         * @param {Shape} shape 
+         * @return {AABB}
+         */
+        const getAABB = (shape) => {
+            switch (shape.type) {
+                case ShapeType.CIRCLE:
+                    return {
+                        x_min: -shape.r,
+                        y_min: -shape.r,
+                        x_max: shape.r,
+                        y_max: shape.r,
+                    }
+
+                default: console.error(`Unknown shape: ${shape.type}.`);
+            }
+        }
+
+        /**
+         * @param {number} r 
+         * @param {number} x 
+         * @param {number} y 
+         * @param {number} v_x 
+         * @param {number} v_y 
+         * 
+         * @return {Circle}
+         */
+        const createShapeCircle = (r, x, y, v_x, v_y) => {
+            const c = {
+                type: ShapeType.CIRCLE,
+
+                r: r,
+
+                x: x,
+                y: y,
+
+                v_x: v_x,
+                v_y: v_y,
+            }
+
+            c.aabb = getAABB(c)
+
+            return c
+        }
+
+        /**
+         * @type{Shape[]}
+         */
+        const shapes = [
+            createShapeCircle(20, 0, 0, 40, -30),
+            createShapeCircle(35, 0, 0, -20, 25),
+            createShapeCircle(15, 0, 0, 35, 45),
+        ];
+
+        const camera = {
+            x: 0,
+            y: 0,
+
+            width: 256,
+            height: 144,
+
+            zoom: 1
+        }
+
+        /**
+         * @type{AABB}
+         */
+        const boundingBox = {
+            x_min: -100,
+            y_min: -100,
+            x_max: 100,
+            y_max: 100,
+        }
+
+        const random_vel = (a) => {
+            return a + (Math.random() - 0.5) * 10;
+        }
+
+        const physics = (delta) => {
+            shapes.forEach(shape => {
+                shape.x += shape.v_x * delta;
+                shape.y += shape.v_y * delta;
+
+                if (shape.x + shape.aabb.x_min < boundingBox.x_min) {
+                    shape.x = boundingBox.x_min - shape.aabb.x_min;
+                    shape.v_x = -shape.v_x;
+                    shape.v_x = random_vel(shape.v_x);
+                } else if (shape.x + shape.aabb.x_max > boundingBox.x_max) {
+                    shape.x = boundingBox.x_max - shape.aabb.x_max;
+                    shape.v_x = -shape.v_x;
+                    shape.v_x = random_vel(shape.v_x);
+                }
+
+                if (shape.y + shape.aabb.y_min < boundingBox.y_min) {
+                    shape.y = boundingBox.y_min - shape.aabb.y_min;
+                    shape.v_y = -shape.v_y;
+                    shape.v_y = random_vel(shape.v_y);
+                } else if (shape.y + shape.aabb.y_max > boundingBox.y_max) {
+                    shape.y = boundingBox.y_max - shape.aabb.y_max;
+                    shape.v_y = -shape.v_y;
+                    shape.v_y = random_vel(shape.v_y);
+                }
+            });
+        };
+
+
+        const createSDF = (shapes) => {
+            // make non-alloc
+            const field = [];
+
+            for (let pixel_y = 0; pixel_y < camera.height; ++pixel_y) {
+                const row = [];
+                for (let pixel_x = 0; pixel_x < camera.width; ++pixel_x) {
+                    // Map to world pos
+                    const world_pos_x = ((pixel_x - camera.width / 2) / camera.zoom) + camera.x;
+                    const world_pos_y = ((pixel_y - camera.height / 2) / camera.zoom) + camera.y;
+
+                    let value = 99;
+                    for (const c of shapes) {
+                        const d = Math.sqrt(distanceSquared(world_pos_x, world_pos_y, c.x, c.y)) - c.r;
+                        value = smoothUnion(value, d, METABALL_CONFIG.smoothRadius);
+                    }
+                    row.push(value);
+                }
+                field.push(row);
+            }
+            return field;
+        };
+
+
+        const SDF_to_contour_field = (sdf) => {
+            const contour = [];
+            const height = sdf.length;
+            const width = sdf[0].length;
+
+            for (let y = 0; y < height - 1; ++y) {
+                const row = [];
+                for (let x = 0; x < width - 1; ++x) {
+                    row.push(
+                        (8 * (sdf[y][x] > METABALL_CONFIG.threshold)) +
+                        (4 * (sdf[y][x + 1] > METABALL_CONFIG.threshold)) +
+                        (2 * (sdf[y + 1][x + 1] > METABALL_CONFIG.threshold)) +
+                        (1 * (sdf[y + 1][x] > METABALL_CONFIG.threshold))
+                    );
+                }
+                contour.push(row);
+            }
+            return contour;
+        }
+
+
+        /// LOOKUP
+        const LINE_TABLE = [
+            [],                 // 0: All outside
+            [[2, 3]],           // 1: Bottom-left inside
+            [[1, 2]],           // 2: Bottom-right inside
+            [[1, 3]],           // 3: Bottom-left & Bottom-right inside
+            [[0, 1]],           // 4: Top-right inside
+            [[0, 1], [2, 3]],   // 5: Top-right & Bottom-left inside (Saddle point case)
+            [[0, 2]],           // 6: Top-right & Bottom-right inside
+            [[0, 3]],           // 7: Top-left outside
+            [[0, 3]],           // 8: Top-left inside
+            [[0, 2]],           // 9: Top-left & Bottom-left inside
+            [[0, 3], [1, 2]],   // 10: Top-left & Bottom-right inside (Saddle point case)
+            [[0, 1]],           // 11: Top-right outside
+            [[1, 3]],           // 12: Top-left & Top-right inside
+            [[1, 2]],           // 13: Bottom-right outside
+            [[2, 3]],           // 14: Bottom-left outside
+            []                  // 15: All inside (no contour lines)
+        ];
+
+        /**
+         * Edges
+         * 
+         *   0 
+         * 3 + 1
+         *   2
+         */
+        const EDGE_TABLE = [
+            [0.5, 0.0],
+            [1.0, 0.5],
+            [0.5, 1.0],
+            [0.0, 0.5],
+        ];
+
+
+        const drawContour = (contourField) => {
+            ctx.strokeStyle = "white";
+
+            const height = contourField.length;
+            const width = contourField[0].length;
+
+            for (let y = 0; y < height; ++y) {
+                for (let x = 0; x < width; ++x) {
+                    const cellIndex = contourField[y][x];
+                    if (cellIndex > 0 && cellIndex < 15) {
+                        drawTile(cellIndex, x, y);
+                    }
+                }
+            }
+        }
+
+        const drawTile = (index, px, py) => {
+            const TILE_W = canvas.width / camera.width;
+            const TILE_H = canvas.height / camera.height;
+
+            const edges = LINE_TABLE[index];
+            if (!edges) return;
+
+            const x0 = px * TILE_W;
+            const y0 = py * TILE_H;
+
+            edges.forEach(edge => {
+                const p1 = EDGE_TABLE[edge[0]];
+                const p2 = EDGE_TABLE[edge[1]];
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    x0 + p1[0] * TILE_W,
+                    y0 + p1[1] * TILE_H
+                );
+                ctx.lineTo(
+                    x0 + p2[0] * TILE_W,
+                    y0 + p2[1] * TILE_H
+                );
+                ctx.stroke();
+            });
+        };
+        const worldToScreen = (wx, wy) => {
+            const sx = (wx - camera.x) * camera.zoom + camera.width / 2;
+            const sy = (wy - camera.y) * camera.zoom + camera.height / 2;
+
+            return {
+                x: sx * (canvas.width / camera.width),
+                y: sy * (canvas.height / camera.height)
+            };
+        };
+
+        const drawBounds = (aabb) => {
+            const p1 = worldToScreen(aabb.x_min, aabb.y_min);
+            const p2 = worldToScreen(aabb.x_max, aabb.y_min);
+            const p3 = worldToScreen(aabb.x_max, aabb.y_max);
+            const p4 = worldToScreen(aabb.x_min, aabb.y_max);
+
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.lineTo(p3.x, p3.y);
+            ctx.lineTo(p4.x, p4.y);
+            ctx.closePath();
+            ctx.strokeStyle = "green";
+            ctx.stroke();
+        }
+
+
+        const draw = (delta) => {
+            const sdf = createSDF(shapes);
+            const contour = SDF_to_contour_field(sdf);
+
+            drawContour(contour);
+
+            drawBounds(boundingBox)
+        }
+
+        const update = () => {
+            const currentFrame = performance.now()
+            delta = (currentFrame - lastFrame) / 1000; // ms -> s
+
+            physics(delta)
+            clearScreen()
+            draw(delta)
+
+            lastFrame = currentFrame;
+            requestAnimationFrame(update);
+        }
+
+        /// SETUP
+        requestAnimationFrame(update);
+    </script>
+</body>
+
+</html>
