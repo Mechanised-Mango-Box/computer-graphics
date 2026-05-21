@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Metaballs</title>
+    <style>
+        /* Make the page background black and text white */
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Wolfenstein 3D</h1>
+    <div>
+        <canvas id="canvas" width="1280" height="720"></canvas>
+    </div>
+    <script>
+        "use strict";
+
+        const update = () => {
+            const currentFrame = performance.now()
+            delta = (currentFrame - lastFrame) / 1000; // ms -> s
+
+            physics(delta)
+            clearScreen()
+            draw(delta)
+
+            lastFrame = currentFrame;
+            requestAnimationFrame(update);
+        }
+
+        /// SETUP
+        requestAnimationFrame(update);
+    </script>
+</body>
+
+</html>
