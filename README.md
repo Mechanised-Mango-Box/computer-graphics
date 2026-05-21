@@ -1,7 +1,6 @@
 > Speedrunning historic computer graphics techniques
 
-
-**Open as a webpage (for live demos): https://mechanised-mango-box.github.io/computer-graphics/**
+**Open as a webpage for live demos:** https://mechanised-mango-box.github.io/computer-graphics/
 
 ---
 
