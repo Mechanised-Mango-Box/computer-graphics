@@ -23,6 +23,10 @@
             border: 2px solid #ffffff;
             background-color: #000000;
         }
+
+        ul {
+            color: white;
+        }
     </style>
 </head>
 <!-- https://www.desmos.com/calculator/9htu84hp9r -->
@@ -31,10 +35,14 @@
     <h1>Metaballs</h1>
     <div>
         <canvas id="canvas" width="1280" height="720"></canvas>
-        <div>
-            <label>Threshold</label>
-            <input type="range" id="thresholdSlider" min="0.00" max="1.5" step="0.01" value="0.50">
-        </div>
+    </div>
+    <div>
+        <h2>Notes:</h2>
+        <ul>
+            <li>Move camera with <code>ARROW_KEYS</code>
+            <li><code>PAGEUP</code>/<code>PAGEDOWN</code> to change zoom
+            <li><code>-</code>/<code>+</code> to cycles camera resolutions
+        </ul>
     </div>
     <script>
         "use strict";
@@ -93,6 +101,19 @@
         const distanceSquared = (x0, y0, x1, y1) => (x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1);
         //#endregion
 
+        const RES = [
+            [256, 144],
+            [384, 216],
+            [512, 288],
+            [640, 360],
+            [768, 432],
+            [896, 504],
+            [1024, 576],
+            [1280, 720],
+            [1600, 900],
+            [1920, 1080]
+        ];
+
         //#region Globals
         const METABALL_CONFIG = {
             smoothRadius: 20,
@@ -135,6 +156,14 @@
                     camera.zoom -= CAMERA_CONFIG.zoom_speed * delta;
                     camera.zoom = Math.max(0, camera.zoom)
                     break;
+                case "-":
+                    resIndex = Math.max(0, resIndex - 1);
+                    updateResolution();
+                    break;
+                case "=":
+                    resIndex = Math.min(RES.length - 1, resIndex + 1);
+                    updateResolution();
+                    break;
             }
         });
         const canvas = document.getElementById("canvas");
@@ -142,6 +171,14 @@
         const clearScreen = () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
+        let resIndex = 0;
+        const updateResolution = () => {
+            const [w, h] = RES[resIndex];
+            camera.width = w;
+            camera.height = h;
+        };
+
+
 
         /**
          * @readonly
