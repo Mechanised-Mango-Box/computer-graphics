@@ -39,9 +39,10 @@
     <div>
         <h2>Notes:</h2>
         <ul>
-            <li>Move camera with <code>ARROW_KEYS</code>
+            <li><code>ARROW_KEYS</code> to move camera
             <li><code>PAGEUP</code>/<code>PAGEDOWN</code> to change zoom
-            <li><code>-</code>/<code>+</code> to cycles camera resolutions
+            <li><code>-</code> / <code>+</code> to cycles camera resolutions
+            <li><code>[</code> / <code>]</code> to change smooth radius (blobby-ness)
         </ul>
     </div>
     <script>
@@ -148,6 +149,7 @@
                 case "ArrowRight":
                     camera.x += (CAMERA_CONFIG.move_speed / camera.zoom) * delta;
                     break;
+
                 case "PageUp":
                     camera.zoom += CAMERA_CONFIG.zoom_speed * delta;
                     camera.zoom = Math.max(0, camera.zoom)
@@ -156,6 +158,7 @@
                     camera.zoom -= CAMERA_CONFIG.zoom_speed * delta;
                     camera.zoom = Math.max(0, camera.zoom)
                     break;
+
                 case "-":
                     resIndex = Math.max(0, resIndex - 1);
                     updateResolution();
@@ -163,6 +166,13 @@
                 case "=":
                     resIndex = Math.min(RES.length - 1, resIndex + 1);
                     updateResolution();
+                    break;
+
+                case "[":
+                    METABALL_CONFIG.smoothRadius = Math.max(0, METABALL_CONFIG.smoothRadius - 1);
+                    break;
+                case "]":
+                    METABALL_CONFIG.smoothRadius = Math.max(0, METABALL_CONFIG.smoothRadius + 1);
                     break;
             }
         });
