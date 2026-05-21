@@ -166,18 +166,6 @@
                     break;
             }
         });
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
-        const clearScreen = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        }
-        let resIndex = 0;
-        const updateResolution = () => {
-            const [w, h] = RES[resIndex];
-            camera.width = w;
-            camera.height = h;
-        };
-
 
 
         /**
@@ -256,10 +244,9 @@
 
             return c
         }
-
         /**
-         * @type{Shape[]}
-         */
+     * @type{Shape[]}
+     */
         const shapes = [
             createShapeCircle(20, 0, 0, 40, -30),
             createShapeCircle(35, 0, 0, -20, 25),
@@ -275,6 +262,28 @@
 
             zoom: 1
         }
+
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const clearScreen = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        const getBufferIndex = (x, y, w) => y * w + x
+        const createBuffer = (w, h) => new Array(w * h);
+        let resIndex = 0;
+        let buffer_sdf = createBuffer(camera.width, camera.height)
+        let buffer_contour = createBuffer(camera.width, camera.height)
+
+        const updateResolution = () => {
+            const [w, h] = RES[resIndex];
+            camera.width = w;
+            camera.height = h;
+            buffer_sdf = createBuffer(w, h)
+            buffer_contour = createBuffer(w, h)
+        };
+
+
+
 
         /**
          * @type{AABB}
@@ -317,49 +326,43 @@
             });
         };
 
+        const createSDF = (shapes, buffer) => {
+            const w = camera.width;
+            const h = camera.height;
 
-        const createSDF = (shapes) => {
-            // make non-alloc
-            const field = [];
+            for (let pixel_y = 0; pixel_y < h; ++pixel_y) {
+                for (let pixel_x = 0; pixel_x < w; ++pixel_x) {
 
-            for (let pixel_y = 0; pixel_y < camera.height; ++pixel_y) {
-                const row = [];
-                for (let pixel_x = 0; pixel_x < camera.width; ++pixel_x) {
-                    // Map to world pos
-                    const world_pos_x = ((pixel_x - camera.width / 2) / camera.zoom) + camera.x;
-                    const world_pos_y = ((pixel_y - camera.height / 2) / camera.zoom) + camera.y;
+                    const world_pos_x = ((pixel_x - w / 2) / camera.zoom) + camera.x;
+                    const world_pos_y = ((pixel_y - h / 2) / camera.zoom) + camera.y;
 
-                    let value = 99;
+                    let value = Number.MAX_SAFE_INTEGER;
+
                     for (const c of shapes) {
                         const d = Math.sqrt(distanceSquared(world_pos_x, world_pos_y, c.x, c.y)) - c.r;
                         value = smoothUnion(value, d, METABALL_CONFIG.smoothRadius);
                     }
-                    row.push(value);
+
+                    buffer[getBufferIndex(pixel_x, pixel_y, w)] = value;
                 }
-                field.push(row);
             }
-            return field;
-        };
+        }
 
 
-        const SDF_to_contour_field = (sdf) => {
-            const contour = [];
-            const height = sdf.length;
-            const width = sdf[0].length;
+        const SDF_to_contour_field = (sdf, buffer_contour) => {
+            const w = camera.width;
+            const h = camera.height;
 
-            for (let y = 0; y < height - 1; ++y) {
-                const row = [];
-                for (let x = 0; x < width - 1; ++x) {
-                    row.push(
-                        (8 * (sdf[y][x] > METABALL_CONFIG.threshold)) +
-                        (4 * (sdf[y][x + 1] > METABALL_CONFIG.threshold)) +
-                        (2 * (sdf[y + 1][x + 1] > METABALL_CONFIG.threshold)) +
-                        (1 * (sdf[y + 1][x] > METABALL_CONFIG.threshold))
+            for (let y = 0; y < h - 1; ++y) {
+                for (let x = 0; x < w - 1; ++x) {
+                    buffer_contour[getBufferIndex(x, y, w)] = (
+                        (8 * (sdf[getBufferIndex(x, y, w)] > METABALL_CONFIG.threshold)) +
+                        (4 * (sdf[getBufferIndex(x + 1, y, w)] > METABALL_CONFIG.threshold)) +
+                        (2 * (sdf[getBufferIndex(x + 1, y + 1, w)] > METABALL_CONFIG.threshold)) +
+                        (1 * (sdf[getBufferIndex(x, y + 1, w)] > METABALL_CONFIG.threshold))
                     );
                 }
-                contour.push(row);
             }
-            return contour;
         }
 
 
@@ -401,12 +404,12 @@
         const drawContour = (contourField) => {
             ctx.strokeStyle = "white";
 
-            const height = contourField.length;
-            const width = contourField[0].length;
+            const h = camera.height;
+            const w = camera.width;
 
-            for (let y = 0; y < height; ++y) {
-                for (let x = 0; x < width; ++x) {
-                    const cellIndex = contourField[y][x];
+            for (let y = 0; y < h; ++y) {
+                for (let x = 0; x < w; ++x) {
+                    const cellIndex = contourField[getBufferIndex(x, y, w)];
                     if (cellIndex > 0 && cellIndex < 15) {
                         drawTile(cellIndex, x, y);
                     }
@@ -466,13 +469,11 @@
             ctx.stroke();
         }
 
-
         const draw = (delta) => {
-            const sdf = createSDF(shapes);
-            const contour = SDF_to_contour_field(sdf);
+            createSDF(shapes, buffer_sdf);
+            SDF_to_contour_field(buffer_sdf, buffer_contour);
 
-            drawContour(contour);
-
+            drawContour(buffer_contour);
             drawBounds(boundingBox)
         }
 
