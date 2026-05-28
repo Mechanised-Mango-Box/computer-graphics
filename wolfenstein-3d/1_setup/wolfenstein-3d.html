@@ -27,35 +27,59 @@
     <script>
         "use strict";
 
-        const DEFAULT_VIEWPORT_W = 400;
-        const DEFAULT_VIEWPORT_H = 300;
+        const _DEFAULT_VIEWPORT_W = 400;
+        const _DEFAULT_VIEWPORT_H = 300;
         const setup_viewport = () => {
             const canvas = document.getElementById("viewport");
             const ctx = canvas.getContext("2d");
 
-            let viewport_w = DEFAULT_VIEWPORT_W;
+            let viewport_w = _DEFAULT_VIEWPORT_W;
             const get_viewport_w = () => viewport_w;
-            let viewport_h = DEFAULT_VIEWPORT_H;
+            let viewport_h = _DEFAULT_VIEWPORT_H;
             const get_viewport_h = () => viewport_h;
 
             let imageData;
             let framebuffer;
-
+            /**
+             * @param {number} w
+             * @param {number} h
+             * @return {void}
+             */
             const set_resolution = (w, h) => {
-                canvas.width = w;
-                canvas.height = h;
+                viewport_w = w;
+                viewport_h = h;
 
-                imageData = ctx.createImageData(w, h);
+                canvas.width = viewport_w;
+                canvas.height = viewport_h;
+
+                imageData = ctx.createImageData(viewport_w, viewport_h);
                 framebuffer = imageData.data;
             };
 
+            /**
+             * @param {number} x
+             * @param {number} y
+             * @param {number} r
+             * @param {number} g
+             * @param {number} b
+             * @param {number} [a=255]
+             * @return {void}
+            */
             const set_pixel = (x, y, r, g, b, a = 255) => {
-                const i = (y * get_viewport_w() + x) * 4;
+                const i = (((viewport_h - 1) - y) * viewport_w + x) * 4;
                 framebuffer[i] = r;
                 framebuffer[i + 1] = g;
                 framebuffer[i + 2] = b;
                 framebuffer[i + 3] = a;
             };
+            /**
+             * @return {void}
+             */
+            const clear = () => framebuffer.fill(0);
+
+            /**
+             * @return {void}
+             */
             const render = () => ctx.putImageData(imageData, 0, 0);
 
             return {
@@ -64,12 +88,22 @@
                 set_resolution,
 
                 set_pixel,
+                clear,
                 render,
             };
         }
 
         const draw = (delta, viewport) => {
+            const x0 = 50, x1 = 800, y0 = 20, y1 = 500;
 
+            for (let y = 0; y < viewport.get_viewport_h(); ++y) {
+                for (let x = 0; x < viewport.get_viewport_w(); ++x) {
+                    if (x0 <= x && x <= x1 &&
+                        y0 <= y && y <= y1) {
+                        viewport.set_pixel(x, y, 255, 0, 255)
+                    }
+                }
+            }
         }
 
         const tick_rate = 60;
@@ -83,7 +117,6 @@
         const tick = (delta) => {
 
         }
-
 
         const viewport = setup_viewport();
         viewport.set_resolution(1280, 720);
@@ -100,11 +133,11 @@
             render_delta = (current_frame - render_last_frame) / 1000;
             if (render_fps == null || render_delta >= 1 / render_fps) {
                 draw(render_delta, viewport);
-                viewport.render()
+                viewport.render();
                 render_last_frame = current_frame;
             }
 
-            requestAnimationFrame(() => update(viewport));
+            requestAnimationFrame(() => update());
         };
 
         requestAnimationFrame(() => update());
