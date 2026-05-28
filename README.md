@@ -2,6 +2,8 @@
 
 **Open as a webpage for live demos:** [Flashbang Warning (⌐■_■)](https://mechanised-mango-box.github.io/computer-graphics/)
 
+**Repo:** [(。_。)](https://github.com/Mechanised-Mango-Box/computer-graphics)
+
 ---
 
 # Contents
