@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Wolfenstein 3D</title>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>AABB Ray Casting</h1>
+    <div> <canvas id="ray-example"> </canvas></div>
+    <script>
+        const D2R = Math.PI / 180;
+
+        const clamp = (v, l, h) => Math.max(l, Math.min(v, h))
+
+        const SCREEN_W = 500;
+        const SCREEN_H = 500;
+
+        const canvas = document.getElementById("ray-example");
+        canvas.width = SCREEN_W;
+        canvas.height = SCREEN_H;
+        const ctx = canvas.getContext("2d");
+        ctx.strokeStyle = "white";
+
+        const clear = () => ctx.clearRect(0, 0, SCREEN_W, SCREEN_H);
+
+        const draw_line = (x0, y0, x1, y1) => {
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x1, y1);
+            ctx.stroke();
+        }
+        const draw_ray = (x, y, offset_x, offset_y) => {
+            draw_line(x, y, x + offset_x, y + offset_y)
+        }
+        const draw_box = (x0, y0, x1, y1) => {
+            ctx.beginPath();
+            ctx.rect(x0, y0, x1 - x0, y1 - y0);
+            ctx.stroke();
+        };
+        const draw_circle = (x, y, r) => {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.stroke();
+        };
+        const draw_ray_parametric = (r, t0, t1) => {
+            draw_line(r.o.x + t0 * r.d.x, r.o.y + t0 * r.d.y, r.o.x + t1 * r.d.x, r.o.y + t1 * r.d.y)
+        }
+
+        const r = {
+            o: {
+                x: 50, y: 50
+            },
+            d: {
+                x: 400, y: 300
+            },
+        }
+        const aabb = {
+            x0: 200,
+            y0: 200,
+            x1: 350,
+            y1: 300,
+        }
+
+        const draw = () => {
+            clear()
+            ctx.strokeStyle = "white"
+
+            draw_ray(r.o.x, r.o.y, r.d.x, r.d.y)
+            draw_circle(r.o.x, r.o.y, 10)
+            draw_circle(r.o.x + r.d.x, r.o.y + r.d.y, 5)
+
+            ctx.setLineDash([2, 5]);
+            ctx.strokeStyle = "red"
+            draw_line(aabb.x0, -1000, aabb.x0, 1000)
+            draw_line(aabb.x1, -1000, aabb.x1, 1000)
+            ctx.strokeStyle = "green"
+            draw_line(-1000, aabb.y0, 1000, aabb.y0)
+            draw_line(-1000, aabb.y1, 1000, aabb.y1)
+            ctx.strokeStyle = "white"
+            ctx.setLineDash([]);
+            draw_box(aabb.x0, aabb.y0, aabb.x1, aabb.y1)
+
+            // calc t values
+            // special case
+            if (r.d.x == 0 || r.d.y == 0) {
+                return
+            }
+
+            t_x0 = (aabb.x0 - r.o.x) / r.d.x
+            t_x1 = (aabb.x1 - r.o.x) / r.d.x
+            if (t_x0 > t_x1) [t_x0, t_x1] = [t_x1, t_x0];
+
+            t_y0 = (aabb.y0 - r.o.y) / r.d.y
+            t_y1 = (aabb.y1 - r.o.y) / r.d.y
+            if (t_y0 > t_y1) [t_y0, t_y1] = [t_y1, t_y0];
+
+            // draw lines on ray based on t values
+
+            ctx.strokeStyle = "red"
+            draw_ray_parametric(r, t_x0, t_x1)
+            ctx.strokeStyle = "green"
+            draw_ray_parametric(r, t_y0, t_y1)
+
+
+            t_min = Math.max(0, t_x0, t_y0)
+            t_max = Math.min(Infinity, t_x1, t_y1)
+
+            if (t_min > t_max) return;
+
+            ctx.strokeStyle = "yellow"
+            draw_ray_parametric(r, t_min, t_max)
+
+            ctx.strokeStyle = "white"
+        }
+
+        const dist = (x1, y1, x2, y2) =>
+            Math.hypot(x1 - x2, y1 - y2);
+        let dragging = null;
+        canvas.addEventListener("mousedown", e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+
+            if (dist(mx, my, r.o.x, r.o.y) < 12) dragging = "o";
+            else if (dist(mx, my, r.o.x + r.d.x, r.o.y + r.d.y) < 12) dragging = "d";
+        });
+
+        canvas.addEventListener("mousemove", e => {
+            if (!dragging) return;
+
+            const rect = canvas.getBoundingClientRect();
+            let mx = e.clientX - rect.left;
+            let my = e.clientY - rect.top;
+
+            mx = clamp(mx, 0, SCREEN_W);
+            my = clamp(my, 0, SCREEN_H);
+
+            switch (dragging) {
+                case 'o':
+                    const endX = r.o.x + r.d.x;
+                    const endY = r.o.y + r.d.y;
+
+                    r.o.x = mx;
+                    r.o.y = my;
+
+                    r.d.x = endX - r.o.x;
+                    r.d.y = endY - r.o.y;
+                    break;
+
+                case 'd':
+                    r.d.x = mx - r.o.x;
+                    r.d.y = my - r.o.y;
+                    break;
+            }
+
+            draw();
+        });
+
+
+        canvas.addEventListener("mouseup", () => dragging = null);
+        canvas.addEventListener("mouseleave", () => dragging = null);
+
+        draw();
+
+    </script>
+</body>
+
+</html>
