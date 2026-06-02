@@ -96,7 +96,7 @@ const setup_viewport = () => {
 }
 ```
 
-# 1.2 Drawing Squares
+## 1.2 Drawing Squares
 Make sure that the renderer is doing what we want.
 
 ```js
