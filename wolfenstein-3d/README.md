@@ -1,11 +1,15 @@
-# Demo
+# Wolfenstein 3D
+
+The lesser known predecessor to Doom.
+
+## Demo
 [Link](./wolfenstein-3d.html)
 
-# Walkthrough
+## Walkthrough
 1. [Setup](./1_setup/README.md)
 2. [Ray Casting](./2_ray-casting/README.md)
 
-# Q&A
+## Q&A
 > What is this?
 
 A walkthrough of me learning how to make a Wolfenstein 3D like game from bare pixels with interactive diagrams along the way. It could work as a tutorial but I can't guarantee it will work out for you that way. I also leave links to things that I found really helpful along the way since this stuff doesn't always show up when you search for them (if you even know what to look for).
@@ -21,3 +25,8 @@ I was going to use `raylib` with `C` or `Odin` but setting it up on Windows took
 > Is JS a mistake?
 
 Also yes. How did anyone think silent errors (not even just logging it) was a good idea is beyond me. Also no types is most definitely a choice of all time.
+
+> Can I get the actual Wolfenstein 3D game?
+
+- Source Code: https://github.com/id-Software/wolf3d
+- Playable: https://archive.org/details/wolfenstein-3d
