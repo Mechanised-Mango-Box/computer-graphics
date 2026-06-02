@@ -8,5 +8,10 @@
 
 # Contents
 Ordered by start of project:
-1. [Marching Squares](./marching-squares/)
+1. [Marching Squares (Metaballs)](./marching-squares/)
 2. [Wolfenstein 3D](./wolfenstein-3d)
+3. [Walkthrough: AABB Ray Casting](./aabb-ray-casting/)
+
+# Todo:
+- complete wolfenstein
+- clean up aabb raycast (no longer part of wolfenstein)
