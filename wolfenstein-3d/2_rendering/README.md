@@ -1,4 +1,4 @@
-# 2. Rendering
+# 2 Rendering
 
 ============================================================TODO summary + clean up writeup
 **Click here for a [Interactive Demo](./wolfenstein-3d.html)**

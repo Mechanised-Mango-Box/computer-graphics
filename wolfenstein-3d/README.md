@@ -7,7 +7,7 @@ The lesser known predecessor to Doom.
 
 ## Walkthrough
 1. [Setup](./1_setup/README.md)
-2. [Ray Casting](./2_ray-casting/README.md)
+2. [Rendering](./2_rendering/README.md)
 
 ## Q&A
 > What is this?
