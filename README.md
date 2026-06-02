@@ -14,4 +14,3 @@ Ordered by start of project:
 
 # Todo:
 - complete wolfenstein
-- clean up aabb raycast (no longer part of wolfenstein)
