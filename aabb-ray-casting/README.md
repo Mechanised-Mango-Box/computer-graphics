@@ -32,15 +32,15 @@ The position of a ray over time is can be written as:
 $$\vec{P}(t) = \vec{O} + t \cdot \vec{D}$$
 
 Or when view as their 2D components:
-$$\vec{P_{x}}(t) = \vec{O_{x}} + t \cdot \vec{D_{x}}$$
-$$\vec{P_{y}}(t) = \vec{O_{y}} + t \cdot \vec{D_{y}}$$
+$$\vec{P_x}(t) = \vec{O_x} + t \cdot \vec{D_x}$$
+$$\vec{P_y}(t) = \vec{O_y} + t \cdot \vec{D_y}$$
 
 ### 2. Slabs
 
 A slab is a 1D region defined by a minimum and maxmimum on said dimension/axis:
 
 For example in the x-axis:
-$$\text{Slab}_{x}: x_{\min} \le x \le x_{\max}$$
+$$\text{Slab}_x: x_{\min} \le x \le x_{\max}$$
 
 A slab when viewed in 1D:
 ![](./slab-1d.svg)
@@ -79,8 +79,8 @@ An example of a miss:
 
 #### 4.3 Special Rays
 
-A special case of the above is when the ray is also axis-aligned. This will be when $D_{y} = 0$ and $D_{x} = 0$ for an vertical and horizontal ray respectivly.  
-$$\vec{D_{x}} = 0 \quad \text{or} \quad \vec{D_{y}} = 0$$
+A special case of the above is when the ray is also axis-aligned. This will be when $D_y = 0$ and $D_x = 0$ for an vertical and horizontal ray respectivly.  
+$$\vec{D_x} = 0 \quad \text{or} \quad \vec{D_y} = 0$$
 
 #### 4.4 How do we find $t$?
 
@@ -101,12 +101,12 @@ The point of intersection between a ray and the x-axis is (with an unknown $t$):
 
 ![](./ray-inter.svg)
 
-$$ \vec{P_{x}}(t) = a $$
+$$ \vec{P_x}(t) = a $$
 
 To solve for t:
 
-$$ \vec{P_{x}}(t) = \vec{O_{x}} + t \cdot \vec{D_{x}} = a $$
-$$ t = \frac{a - \vec{O_{x}}}{\vec{D_{x}}} $$
+$$ \vec{P_x}(t) = \vec{O_x} + t \cdot \vec{D_x} = a $$
+$$ t = \frac{a - \vec{O_x}}{\vec{D_x}} $$
 
 We know that if for any $t$ if the above can be solved, then the ray will intersect the line at $x=a$.
 
