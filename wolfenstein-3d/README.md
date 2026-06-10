@@ -7,7 +7,7 @@ The lesser known predecessor to Doom.
 
 ## Walkthrough
 1. [Setup](./1_setup/README.md)
-1. [Minimap](./2_minimap/README.md)
+1. [Flatworld (Minimap)](./2_flatworld/README.md)
 2. [Rendering](./3_rendering/README.md)
 
 ## Q&A
