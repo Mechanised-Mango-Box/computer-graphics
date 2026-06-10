@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Wolfenstein 3D</title>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        #viewport {
+            width: 1280px;
+            /* display size */
+            height: 720px;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Wolfenstein 3D</h1>
+    <div> <canvas id="viewport"></canvas></div>
+    <script>
+        "use strict";
+        /**
+         * Buffer Index
+         * @param {number} x
+         * @param {number} y
+         * @param {number} w
+         * @return {number}
+         */
+        const bi = (x, y, w) => y * w + x;
+        /**
+         * Buffer Index - Bounds Checked
+         * @param {number} x
+         * @param {number} y
+         * @param {number} w
+         * @param {number} h
+         * @return {number | undefined}
+         */
+        const bi_s = (x, y, w, h) => {
+            if (x >= w || y >= h || x < 0 || y < 0) {
+                // console.error("Out of bounds.")
+                return undefined
+            }
+            return bi(x, y, w)
+        }
+
+        /**
+         * @param {number} w
+         * @param {number} h
+         * @return {Array}
+         */
+        const create_rect_buffer = (w, h) => new Array(w * h);
+
+        const _DEFAULT_VIEWPORT_W = 400;
+        const _DEFAULT_VIEWPORT_H = 300;
+        const setup_viewport = () => {
+            const canvas = document.getElementById("viewport");
+            const ctx = canvas.getContext("2d");
+
+            let viewport_w = _DEFAULT_VIEWPORT_W;
+            const get_viewport_w = () => viewport_w;
+            let viewport_h = _DEFAULT_VIEWPORT_H;
+            const get_viewport_h = () => viewport_h;
+
+            let imageData;
+            let framebuffer;
+            /**
+             * @param {number} w
+             * @param {number} h
+             * @return {void}
+             */
+            const set_resolution = (w, h) => {
+                viewport_w = w;
+                viewport_h = h;
+
+                canvas.width = viewport_w;
+                canvas.height = viewport_h;
+
+                imageData = ctx.createImageData(viewport_w, viewport_h);
+                framebuffer = imageData.data;
+            };
+
+            /**
+             * @param {number} x
+             * @param {number} y
+             * @param {number} r
+             * @param {number} g
+             * @param {number} b
+             * @param {number} a
+             * @return {void}
+            */
+            const set_pixel = (x, y, r, g, b, a = 255) => {
+                const i = (((viewport_h - 1) - y) * viewport_w + x) * 4;
+                framebuffer[i] = r;
+                framebuffer[i + 1] = g;
+                framebuffer[i + 2] = b;
+                framebuffer[i + 3] = a;
+            };
+            /**
+             * @return {void}
+             */
+            const clear = () => framebuffer.fill(0);
+
+            /**
+             * @return {void}
+             */
+            const render = () => ctx.putImageData(imageData, 0, 0);
+
+            // probs better way/place to do this
+            canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+
+            return {
+                get_viewport_w,
+                get_viewport_h,
+                set_resolution,
+
+                set_pixel,
+                clear,
+                render,
+            };
+        }
+
+        /**
+         * @param {string} str
+         */
+        const load_tilemap = (str, scale) => {
+
+            const rows = str.split("\n").map(row => row.trim()).filter(row => row.length > 0);
+
+            const w = rows[0].length;
+            const h = rows.length;
+
+            const tilemap = create_rect_buffer(w, h);
+            let i = 0;
+
+            for (let y = 0; y < h; ++y) {
+                const ty = h - 1 - y;
+                if (w != rows[ty].length) {
+                    console.error("Tilemap is of irregular size, must be a rectangle.")
+                    return null;
+                }
+
+                for (let x = 0; x < w; ++x) {
+                    const tx = x;
+                    tilemap[i] = rows[ty][tx]
+                    ++i;
+                }
+            }
+
+            if (i != w * h) {
+                console.error("Tilemap is of irregular size.")
+                return null
+            }
+            return {
+                buffer: tilemap,
+                w: w,
+                h: h,
+                grid_scale: 10
+            }
+        }
+
+        const tilemap = load_tilemap(`
+                                    ###########
+                                    #   #     #
+                                    #   #  #  #
+                                    ## ##     #
+                                    #         #
+                                    #     #####
+                                    #         #
+                                    # #       #
+                                    # ###     #
+                                    #      S  #
+                                    ###########
+                                    `)
+
+        const player = {
+            pos_x: 0,
+            pos_y: 0,
+
+            rot: 0,
+
+            move_speed: 50
+        }
+
+        const move = (player, v_x, v_y, delta) => {
+            player.pos_x += v_x * delta;
+            player.pos_y += v_y * delta;
+        }
+
+        /**
+         * DDA (https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm))
+         * 
+         * @param {number} x0
+         * @param {number} y0
+         * @param {number} x1
+         * @param {number} y1
+         * 
+         * @param {number} r
+         * @param {number} g
+         * @param {number} b
+         * @param {number} a
+         * 
+         * @return {void}
+         */
+        const draw_line = (x0, y0, x1, y1, r, g, b, a = 255) => {
+            // find m = dy/dx
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+
+            // use the more "aggressive" axis (longer) as the step
+            const longest_axis_mangnitude = (Math.abs(dx) >= Math.abs(dy)) ? Math.abs(dx) : Math.abs(dy)
+            // the move along "step axis" by 1 pixel while moving along the other axis by the slope 
+            const step_x = dx / longest_axis_mangnitude;
+            const step_y = dy / longest_axis_mangnitude;
+            let x = x0;
+            let y = y0;
+
+            // since we only move 1 pixel in the longest magnitude axis(see above), we can iterate on it per pixel 
+            for (
+                let i = 0; i <= longest_axis_mangnitude; ++i) {
+                // paint along the steps
+                viewport.set_pixel(Math.round(x), Math.round(y), // ensure that it is the pixel position not a float
+                    r, g, b, a
+                );
+
+                // move to next step
+                x += step_x;
+                y += step_y;
+            }
+        }
+
+        /**
+         * @param {number} x0
+         * @param {number} y0
+         * @param {number} x1
+         * @param {number} y1
+         * 
+         * @param {number} r
+         * @param {number} g
+         * @param {number} b
+         * @param {number} a
+         * 
+         * @return {void}
+         */
+        const draw_rect = (x0, y0, x1, y1, r, g, b, a = 255) => {
+            for (let py = y0; py < y1; ++py) {
+                for (let px = x0; px < x1; ++px) {
+                    viewport.set_pixel(px, py, r, g, b, a)
+                }
+            }
+        }
+
+        /**
+         * @param {number} x0
+         * @param {number} y0
+         * @param {number} x1
+         * @param {number} y1
+         * 
+         * @param {number} r
+         * @param {number} g
+         * @param {number} b
+         * @param {number} a
+         * 
+         * @return {void}
+         */
+        const draw_rect_hollow = (x0, y0, x1, y1, r, g, b, a = 255) => {
+            // Left + Right edge
+            for (let py = y0; py < y1; ++py) {
+                viewport.set_pixel(x0, py, r, g, b, a)
+                viewport.set_pixel(x1, py, r, g, b, a)
+            }
+
+            // Top + Bottom edge
+            for (let px = x0; px < x1; ++px) {
+                viewport.set_pixel(px, y0, r, g, b, a)
+                viewport.set_pixel(px, y1, r, g, b, a)
+            }
+        }
+
+        /**
+         * @param {number} x0
+         * @param {number} y0
+         * @param {number} x1
+         * @param {number} y1
+         */
+        const dist_sq = (x0, y0, x1, y1) => ((x0 - x1) * (x0 - x1)) + ((y0 - y1) * (y0 - y1))
+        /**
+         * @param {number} cx
+         * @param {number} cy
+         * @param {number} cr
+         * 
+         * @param {number} r
+         * @param {number} g
+         * @param {number} b
+         * @param {number} a
+         * 
+         * @return {void}
+         */
+        const draw_circle = (cx, cy, cr, r, g, b, a = 255) => {
+            const cr_sq = cr * cr;
+
+            // within an AABB do a brute force circle check
+            for (let py = cy - cr; py < cy + cr; ++py) {
+                for (let px = cx - cr; px < cx + cr; ++px) {
+                    if (dist_sq(px, py, cx, cy) - cr_sq <= 0) {
+                        viewport.set_pixel(px, py, r, g, b, a)
+                    }
+                }
+            }
+        }
+
+        const draw_minimap = (delta, viewport, width, height, padding, zoom) => {
+            // assume it is always aligned to the bottom right (can make this a proper thing later) 
+            const x1 = viewport.get_viewport_w() - padding
+            const x0 = x1 - width;
+            const y0 = padding;
+            const y1 = y0 + height;
+
+            draw_rect(x0, y0, x1, y1, 10, 10, 10, 255) // BG
+
+            // foreach pixel within the "frame"
+            for (let fpy = 0; fpy < height; ++fpy) {
+                for (let fpx = 0; fpx < width; ++fpx) {
+                    // frame pixel -> centered on zero
+                    const px = fpx - width / 2;
+                    const py = fpy - height / 2;
+
+                    // Map pixel to world pos (and offset to center on player)
+                    const x = player.pos_x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking 
+                    const y = player.pos_y + (py / zoom);
+
+                    // world pos -> tile pos -> tile index (floor)
+                    const ix = Math.floor(x / tilemap.grid_scale);
+                    const iy = Math.floor(y / tilemap.grid_scale);
+
+                    // lookup correct tile and render
+                    const bi = bi_s(ix, iy, tilemap.w, tilemap.h);
+                    if (bi == undefined) { continue };
+                    if (tilemap.buffer[bi] === '#') {
+                        viewport.set_pixel(x0 + fpx, y0 + fpy, 200, 200, 200);
+                    }
+                }
+            }
+
+            draw_rect_hollow(x0, y0, x1, y1, 255, 255, 255) // Outline
+
+            // draw player (always center)
+            draw_circle(x0 + width / 2, y0 + height / 2, 5, 0, 255, 0)
+        }
+
+        const draw = (delta, viewport) => {
+            draw_circle(200, 300, 100, 100, 100, 100);
+            draw_line(200, 320, 1279, 20, 255, 255, 0);
+            draw_rect(600, 20, 1200, 255, 0, 255, 255);
+
+            draw_minimap(delta, viewport, 300, 250, 5, 2);
+        };
+
+        const tick_rate = 60;
+        const render_fps = null;
+
+        let physics_last_frame = performance.now();
+        let render_last_frame = performance.now();
+        let physics_delta = 0;
+        let render_delta = 0;
+
+        const tick = (delta) => {
+            let v_x = 0;
+            let v_y = 0;
+
+            if (input.keys.a) {
+                v_x += -player.move_speed;
+            }
+            if (input.keys.d) {
+                v_x += player.move_speed;
+            }
+            if (input.keys.s) {
+                v_y += -player.move_speed;
+            }
+            if (input.keys.w) {
+                v_y += player.move_speed;
+            }
+
+            move(player, v_x, v_y, delta)
+        }
+
+        const viewport = setup_viewport();
+        viewport.set_resolution(1280, 720);
+
+        const input = {
+            keys: {},
+            mouse: {
+                dx: 0, dy: 0,
+                buttons: {}
+            }
+        };
+
+        // Keyboard
+        ["keydown", "keyup"].forEach(type => {
+            window.addEventListener(type, e => {
+                input.keys[e.key] = type === "keydown";
+            });
+        });
+
+        // Mouse
+        ["mousedown", "mouseup"].forEach(type => {
+            window.addEventListener(type, e => {
+                input.mouse.buttons[e.button] = type === "mousedown";
+            });
+        });
+
+        window.addEventListener("mousemove", e => {
+            input.mouse.dx = e.movementX;
+            input.mouse.dy = e.movementY;
+        });
+
+        const update = () => {
+            const current_frame = performance.now();
+
+            physics_delta = (current_frame - physics_last_frame) / 1000;
+            if (tick_rate == null || physics_delta >= 1 / tick_rate) {
+                tick(physics_delta);
+                physics_last_frame = current_frame;
+            }
+
+            render_delta = (current_frame - render_last_frame) / 1000;
+            if (render_fps == null || render_delta >= 1 / render_fps) {
+                viewport.clear();
+                draw(render_delta, viewport);
+                viewport.render();
+                render_last_frame = current_frame;
+            }
+
+            requestAnimationFrame(() => update());
+        };
+
+        requestAnimationFrame(() => update());
+    </script>
+</body>
+
+</html>

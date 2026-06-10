@@ -1,8 +1,8 @@
 > Speedrunning historic computer graphics techniques
 
-**Open as a webpage for live demos:** [Flashbang Warning (⌐■_■)](https://mechanised-mango-box.github.io/computer-graphics/)
+**Open as a webpage for live demos:** [Math not render here because Github ╰（‵□′）╯](https://mechanised-mango-box.github.io/computer-graphics/)
 
-**Repo:** [(。_。)](https://github.com/Mechanised-Mango-Box/computer-graphics)
+**Repo:** [Math for some reason does render here (。_。)](https://github.com/Mechanised-Mango-Box/computer-graphics)
 
 ---
 
@@ -11,6 +11,3 @@ Ordered by start of project:
 1. [Marching Squares (Metaballs)](./marching-squares/)
 2. [Wolfenstein 3D](./wolfenstein-3d)
 3. [Walkthrough: AABB Ray Casting](./aabb-ray-casting/)
-
-# Todo:
-- complete wolfenstein
