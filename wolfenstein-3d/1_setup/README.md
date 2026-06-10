@@ -1,4 +1,4 @@
-# 1.0 Setup
+# 1 Setup
 
 > [Demo](./wolfenstein-3d.html)
 

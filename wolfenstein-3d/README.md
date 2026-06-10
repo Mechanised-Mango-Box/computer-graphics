@@ -7,12 +7,17 @@ The lesser known predecessor to Doom.
 
 ## Walkthrough
 1. [Setup](./1_setup/README.md)
-2. [Ray Casting](./2_ray-casting/README.md)
+1. [Flatworld (Minimap)](./2_flatworld/README.md)
+2. [Rendering](./3_rendering/README.md)
 
 ## Q&A
 > What is this?
 
-A walkthrough of me learning how to make a Wolfenstein 3D like game from bare pixels with interactive diagrams along the way. It could work as a tutorial but I can't guarantee it will work out for you that way. I also leave links to things that I found really helpful along the way since this stuff doesn't always show up when you search for them (if you even know what to look for).
+A walkthrough of me learning how to make a Wolfenstein 3D like game from bare pixels with interactive diagrams along the way.
+
+It *could* work as a tutorial but I can't guarantee it will work out for you that way as **it is more a snippet of what I and doing and how/why rather than a step by step on recreating what I have done**, so if you follow along the code might not look like mine (although I do leave a copy of how my code looks at the end of each chapter). I also rename some things to be easier to type/read which is not reflected in the commentary (i.e. `buffer_index_safe()` -> `bi_s()`)
+
+I also leave links to things that I found really helpful along the way since this stuff doesn't always show up when you search for them (if you even know what to look for).
 
 > Why did you do this?
 
@@ -28,5 +33,5 @@ Also yes. How did anyone think silent errors (not even just logging it) was a go
 
 > Can I get the actual Wolfenstein 3D game?
 
-- Source Code: https://github.com/id-Software/wolf3d
-- Playable: https://archive.org/details/wolfenstein-3d
+- Original Source Code (not very helpful): https://github.com/id-Software/wolf3d
+- Playable Emulation (unless you have a MS-DOS somehow): https://archive.org/details/wolfenstein-3d
