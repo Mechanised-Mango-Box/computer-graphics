@@ -39,42 +39,103 @@ Here is the layout for reference:
 
 ### 3.1.4 RTX On (what if we just had more pixels)
 
-To make it look even better, heres what it would look like with much more pixels, instead of having only a screen with ~30 pixels wide.
+To make it look even better, heres what it would look like with much more pixels, instead of having only a screen with ~30 pixels wide. On top of that we can add some light to sides facing an arbitrary room light (shading).
 
 ![](./theory-interpolated.svg)
 
 Looks pretty good right? (I cheated a bit by using polygons but I am not drawing that many pixels)
 
-## 3.2 Raycasting
+## 3.2 FPS Inputs
+
+So far we have been playing the game from the top down, and moving in global space, where `W/A/S/D` corresponds to North/West/South/East respectively.
+
+![](./input-move-global.svg)
+
+But as a shooter, the control scheme should be using relative directions of forward and strafe/right (which direction is forward when rotation is 0 is arbitrary):
+
+![](./input-move-local.svg)
+
+We do this by rotating the input to be relative to the player's direction. We can also use our mouse to rotate. 
+
+```js
+const move = (player, axis_fwd, axis_strafe, delta) => {
+
+    /**  
+     *     
+     *       |
+     *     --@----- > +forwards
+     *       |
+     *       v
+     *     +strafe
+     */
+
+    const forward_x = Math.cos(player.rot) * axis_fwd;
+    const forward_y = Math.sin(player.rot) * axis_fwd;
+
+    const strafe_x = Math.sin(player.rot) * axis_strafe;
+    const strafe_y = -Math.cos(player.rot) * axis_strafe;
+
+    player.pos_x += (forward_x + strafe_x) * delta;
+    player.pos_y += (forward_y + strafe_y) * delta;
+}
 
 
+let sens = 0.2;
+let axis_strafe = 0;
+let axis_forwards = 0;
 
+const tick = (delta) => {
+    //forwards
+    if (input.keys.s) {
+        axis_strafe += -player.move_speed;
+    }
+    if (input.keys.w) {
+        axis_strafe += player.move_speed;
+    }
+    //strafe
+    if (input.keys.a) {
+        axis_forwards += -player.move_speed;
+    }
+    if (input.keys.d) {
+        axis_forwards += player.move_speed;
+    }
+    //look
+    if (input.mouse.dx) {
+        player.rot += sens * -input.mouse.dx * delta; // -ve = non-inverted mouse
+        input.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
+    }
 
+    move(player, axis_strafe, axis_forwards, delta)
+}
+```
 
+## 3.3 Raycasting
 
+### 3.3.1 Variables
 
-
-
-
-
-
-
-
-## 2.2 How to Look at Things (Ray Casting)
-
-- a radar scan per pixel
-- image of over view
-- demo
-
-### 2.2.1 Scanning
+![](./vars-labeled.svg)
+- cam pos
 - fov
 - res
 
-### 2.2.2 Lines on Grids (DDA)
+---
 
-### 2.2.4 Scaling by FOV
+- while we are at it make it so that the player rotates and moves in the local direction
 
-## 2.3 Graffiti-ing the Walls (Texture Mapping)
+### 3.3.2 Lines on Grids
+
+- this time used for collisions
+- dda
+- get distance and scale pixel
+- get colour
+
+### 3.3.3 Shading
+
+- when hit if east/west uses normal colours
+    - N/S darkens the colours
+- potentially could upgrade by baking the lighting upon loading the map
+
+## 3.4 Texture Mapping
 
 
 

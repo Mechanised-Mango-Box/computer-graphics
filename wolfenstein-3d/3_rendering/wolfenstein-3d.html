@@ -190,12 +190,27 @@
 
             rot: 0,
 
-            move_speed: 50
+            move_speed: 25
         }
+        const move = (player, axis_fwd, axis_strafe, delta) => {
 
-        const move = (player, v_x, v_y, delta) => {
-            player.pos_x += v_x * delta;
-            player.pos_y += v_y * delta;
+            /**  
+             *     -strafe
+             *       |
+             *     --@----- > +forwards
+             *       |
+             *       v
+             *     +strafe
+             */
+
+            const forward_x = Math.cos(player.rot) * axis_fwd;
+            const forward_y = Math.sin(player.rot) * axis_fwd;
+
+            const strafe_x = Math.sin(player.rot) * axis_strafe;
+            const strafe_y = -Math.cos(player.rot) * axis_strafe;
+
+            player.pos_x += (forward_x + strafe_x) * delta;
+            player.pos_y += (forward_y + strafe_y) * delta;
         }
 
         /**
@@ -359,10 +374,18 @@
             draw_circle(x0 + width / 2, y0 + height / 2, 5, 0, 255, 0)
         }
 
+        const DEG2RAD = Math.PI / 180;
+        let fov = 60 * DEG2RAD;
+        const raycast_dda = (tilemap, ox, oy, dx, dy) => {
+
+        }
+
+        const render_scene = (delta, viewport, max_render_dist) => {
+
+        }
+
         const draw = (delta, viewport) => {
-            draw_circle(200, 300, 100, 100, 100, 100);
-            draw_line(200, 320, 1279, 20, 255, 255, 0);
-            draw_rect(600, 20, 1200, 255, 0, 255, 255);
+            render_scene(delta, viewport, 50)
 
             draw_minimap(delta, viewport, 300, 250, 5, 2);
         };
@@ -375,24 +398,26 @@
         let physics_delta = 0;
         let render_delta = 0;
 
+        let sens = 0.2;
+        let axis_forwards = 0;
+        let axis_strafe = 0;
+
         const tick = (delta) => {
-            let v_x = 0;
-            let v_y = 0;
-
-            if (input.keys.a) {
-                v_x += -player.move_speed;
-            }
-            if (input.keys.d) {
-                v_x += player.move_speed;
-            }
-            if (input.keys.s) {
-                v_y += -player.move_speed;
-            }
-            if (input.keys.w) {
-                v_y += player.move_speed;
+            //forwards
+            axis_strafe = 0
+            if (input.keys.s) { axis_strafe += -player.move_speed; }
+            if (input.keys.w) { axis_strafe += player.move_speed; }
+            //strafe
+            axis_forwards = 0
+            if (input.keys.a) { axis_forwards += -player.move_speed; }
+            if (input.keys.d) { axis_forwards += player.move_speed; }
+            //look
+            if (input.mouse.dx) {
+                player.rot += sens * -input.mouse.dx * delta; // -ve = non-inverted mouse
+                input.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
             }
 
-            move(player, v_x, v_y, delta)
+            move(player, axis_strafe, axis_forwards, delta)
         }
 
         const viewport = setup_viewport();
