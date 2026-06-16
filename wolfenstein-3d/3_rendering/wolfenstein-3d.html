@@ -193,8 +193,7 @@
             move_speed: 25
         }
         const move = (player, axis_fwd, axis_strafe, delta) => {
-
-            /**  
+            /**
              *     -strafe
              *       |
              *     --@----- > +forwards
@@ -202,30 +201,35 @@
              *       v
              *     +strafe
              */
+            if ((axis_fwd != 0 || axis_strafe != 0)) {
+                const length = Math.sqrt(axis_fwd * axis_fwd + axis_strafe * axis_strafe);
+                const local_x = axis_fwd / length;
+                const local_y = axis_strafe / length;
 
-            const forward_x = Math.cos(player.rot) * axis_fwd;
-            const forward_y = Math.sin(player.rot) * axis_fwd;
+                const looking_x = Math.cos(player.rot);
+                const looking_y = Math.sin(player.rot);
 
-            const strafe_x = Math.sin(player.rot) * axis_strafe;
-            const strafe_y = -Math.cos(player.rot) * axis_strafe;
-
-            player.pos_x += (forward_x + strafe_x) * delta;
-            player.pos_y += (forward_y + strafe_y) * delta;
+                const move_x = local_x * looking_x + local_y * looking_y;
+                const move_y = local_x * looking_y - local_y * looking_x;
+                const velocity = player.move_speed * delta;
+                player.pos_x += move_x * velocity;
+                player.pos_y += move_y * velocity;
+            }
         }
 
         /**
          * DDA (https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm))
-         * 
+         *
          * @param {number} x0
          * @param {number} y0
          * @param {number} x1
          * @param {number} y1
-         * 
+         *
          * @param {number} r
          * @param {number} g
          * @param {number} b
          * @param {number} a
-         * 
+         *
          * @return {void}
          */
         const draw_line = (x0, y0, x1, y1, r, g, b, a = 255) => {
@@ -235,13 +239,13 @@
 
             // use the more "aggressive" axis (longer) as the step
             const longest_axis_mangnitude = (Math.abs(dx) >= Math.abs(dy)) ? Math.abs(dx) : Math.abs(dy)
-            // the move along "step axis" by 1 pixel while moving along the other axis by the slope 
+            // the move along "step axis" by 1 pixel while moving along the other axis by the slope
             const step_x = dx / longest_axis_mangnitude;
             const step_y = dy / longest_axis_mangnitude;
             let x = x0;
             let y = y0;
 
-            // since we only move 1 pixel in the longest magnitude axis(see above), we can iterate on it per pixel 
+            // since we only move 1 pixel in the longest magnitude axis(see above), we can iterate on it per pixel
             for (
                 let i = 0; i <= longest_axis_mangnitude; ++i) {
                 // paint along the steps
@@ -260,12 +264,12 @@
          * @param {number} y0
          * @param {number} x1
          * @param {number} y1
-         * 
+         *
          * @param {number} r
          * @param {number} g
          * @param {number} b
          * @param {number} a
-         * 
+         *
          * @return {void}
          */
         const draw_rect = (x0, y0, x1, y1, r, g, b, a = 255) => {
@@ -281,12 +285,12 @@
          * @param {number} y0
          * @param {number} x1
          * @param {number} y1
-         * 
+         *
          * @param {number} r
          * @param {number} g
          * @param {number} b
          * @param {number} a
-         * 
+         *
          * @return {void}
          */
         const draw_rect_hollow = (x0, y0, x1, y1, r, g, b, a = 255) => {
@@ -314,12 +318,12 @@
          * @param {number} cx
          * @param {number} cy
          * @param {number} cr
-         * 
+         *
          * @param {number} r
          * @param {number} g
          * @param {number} b
          * @param {number} a
-         * 
+         *
          * @return {void}
          */
         const draw_circle = (cx, cy, cr, r, g, b, a = 255) => {
@@ -336,7 +340,7 @@
         }
 
         const draw_minimap = (delta, viewport, width, height, padding, zoom) => {
-            // assume it is always aligned to the bottom right (can make this a proper thing later) 
+            // assume it is always aligned to the bottom right (can make this a proper thing later)
             const x1 = viewport.get_viewport_w() - padding
             const x0 = x1 - width;
             const y0 = padding;
@@ -352,7 +356,7 @@
                     const py = fpy - height / 2;
 
                     // Map pixel to world pos (and offset to center on player)
-                    const x = player.pos_x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking 
+                    const x = player.pos_x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking
                     const y = player.pos_y + (py / zoom);
 
                     // world pos -> tile pos -> tile index (floor)
@@ -374,18 +378,192 @@
             draw_circle(x0 + width / 2, y0 + height / 2, 5, 0, 255, 0)
         }
 
-        const DEG2RAD = Math.PI / 180;
-        let fov = 60 * DEG2RAD;
-        const raycast_dda = (tilemap, ox, oy, dx, dy) => {
 
-        }
+        const DEG2RAD = Math.PI / 180;
+        const FOV_DEFAULT_DEG = 90 // source-like default
+        let fov = FOV_DEFAULT_DEG * DEG2RAD;
+
+        /**
+         * @param{Tilemap} tilemap
+         * @param{number} ox       
+         * @param{number} oy      
+         * @param{number} dx
+         * @param{number} dy
+         * @param{number} max_dist
+         */
+        const raycast_dda = (tilemap, ox, oy, dx, dy, max_dist) => {
+            // Scale positions to tilemap coords
+            ox /= tilemap.grid_scale;
+            oy /= tilemap.grid_scale;
+            dx /= tilemap.grid_scale;
+            dy /= tilemap.grid_scale;
+            max_dist /= tilemap.grid_scale;
+
+            // Cell positions are always ints
+            let cx = Math.floor(ox);
+            let cy = Math.floor(oy);
+
+            // Diagonal distance from the edges of x to x+1 (or y to y+1)
+            const diag_dist_x = Math.abs(1 / dx);
+            const diag_dist_y = Math.abs(1 / dy);
+
+            // Distance to nearest edge along said axis
+            let edge_dist_x;
+            let edge_dist_y;
+
+            // Direction to step in
+            let step_x;
+            let step_y;
+
+            // Calculate initial step (to a cell edge)
+            if (dx < 0) {
+                step_x = -1;
+                edge_dist_x = (ox - cx) * diag_dist_x;
+            } else {
+                step_x = 1;
+                edge_dist_x = (cx + 1.0 - ox) * diag_dist_x;
+            }
+
+            if (dy < 0) {
+                step_y = -1;
+                edge_dist_y = (oy - cy) * diag_dist_y;
+            } else {
+                step_y = 1;
+                edge_dist_y = (cy + 1.0 - oy) * diag_dist_y;
+            }
+
+            let side = 0;
+            let perp_dist = 0;
+
+            // DDA loop
+            while (perp_dist <= max_dist) {
+                // Choose the axis to "snap" to which requires moving along the diagonal the least
+                if (edge_dist_x < edge_dist_y) {
+                    perp_dist = edge_dist_x;
+                    edge_dist_x += diag_dist_x;
+                    cx += step_x;
+                    side = 0;
+                } else {
+                    perp_dist = edge_dist_y;
+                    edge_dist_y += diag_dist_y;
+                    cy += step_y;
+                    side = 1;
+                }
+
+                const bi = bi_s(cx, cy, tilemap.w, tilemap.h);
+                if (bi == undefined) {
+                    return null;
+                }
+
+                const cell = tilemap.buffer[bi];
+                if (cell == '#') {
+                    return {
+                        side: side,
+                        cell: cell,
+                        cell_pos_x: cx,
+                        cell_pos_y: cy,
+                        perp_dist: perp_dist,
+                    };
+                }
+            }
+            return null;
+        };
 
         const render_scene = (delta, viewport, max_render_dist) => {
+            const w = viewport.get_viewport_w();
+            const h = viewport.get_viewport_h();
 
-        }
+            // Camera / player look direction  
+            const look_dir_x = Math.cos(player.rot);
+            const look_dir_y = Math.sin(player.rot);
 
+            // The camera plane (a line in 2D) defined by a 2D vector
+            //                      
+            //                         plane width
+            //                     +-----------------+ 
+            //                     ___________________ 
+            //                  +  \        |        /
+            //                  |   \       |       /
+            //                  |    \      |      /
+            //                  |     \     |     /
+            //   plane distance |      \    |    /
+            //                  |       \   |   /
+            //                  |        \  |  /   
+            //                  |         \ | / \___ FoV   
+            //                  |          \|/
+            //                  +           v
+            //                              @
+            //                            
+            //
+
+            // Scaling the camera plane based on the fov (a ratio between the distance of the plane and the (half-)width)
+            const fov_proportion = Math.tan(fov / 2)
+
+            // The camera plane (x+ is the "forward" of the camera at rotation = 0)
+            //
+            //     y+
+            //     ^            
+            //     |          /
+            //     +--> x+   / 
+            //              /  
+            //             /   
+            //            /    
+            //           @----->  look dir            + 
+            //            \                           | camera plane
+            //             \                          |
+            //              \                         v
+            //               \ 
+            //                \
+            //                 
+            // Convert the camera plane from local space to world space
+            const cam_plane_x = -look_dir_y * fov_proportion;
+            const cam_plane_y = look_dir_x * fov_proportion;
+
+            // Cache the calculation of the wall height scaling
+            const wall_scale_factor = (h * tilemap.grid_scale) / fov_proportion;
+
+            // Foreach vertical pixel
+            for (let px = 0; px < w; ++px) {
+                // Map the pixel to the offset from the center of the plane
+                const offset_along_plane = 1 - (2 * px / w);
+                // Take the raycast direction
+                const dx = look_dir_x + cam_plane_x * offset_along_plane;
+                const dy = look_dir_y + cam_plane_y * offset_along_plane;
+
+                const hit = raycast_dda(tilemap, player.pos_x, player.pos_y, dx, dy, max_render_dist);
+                if (hit != null) {
+                    // Height of the hit wall
+                    const line_height = Math.floor(wall_scale_factor / hit.perp_dist);
+
+                    let py_wall_bottom = (h - line_height) / 2;
+                    let py_wall_top = (h + line_height) / 2;
+
+                    const shade = 1 - Math.sqrt(hit.perp_dist / max_render_dist);
+                    const color = 220 * shade * (hit.side === 1 ? 0.6 : 1);
+
+                    // Draw
+                    for (let py = 0; py < h; ++py) {
+                        if (py < py_wall_bottom) {
+                            // Floor
+                            viewport.set_pixel(px, py, 39, 45, 45);
+                        } else if (py_wall_top < py) {
+                            // Celing / Sky
+                            viewport.set_pixel(px, py, 25, 40, 100);
+                        } else {
+                            // Wall
+                            viewport.set_pixel(px, py, color, color, color);
+                        }
+                    }
+                } else {
+                    // ERROR - failed to hit tile
+                    for (let py = 0; py < h; ++py) {
+                        viewport.set_pixel(px, py, 255, 0, 255);
+                    }
+                }
+            }
+        };
         const draw = (delta, viewport) => {
-            render_scene(delta, viewport, 50)
+            render_scene(delta, viewport, 1500)
 
             draw_minimap(delta, viewport, 300, 250, 5, 2);
         };
@@ -398,26 +576,26 @@
         let physics_delta = 0;
         let render_delta = 0;
 
-        let sens = 0.2;
+        let sens = 0.35;
         let axis_forwards = 0;
         let axis_strafe = 0;
 
         const tick = (delta) => {
-            //forwards
-            axis_strafe = 0
-            if (input.keys.s) { axis_strafe += -player.move_speed; }
-            if (input.keys.w) { axis_strafe += player.move_speed; }
             //strafe
+            axis_strafe = 0
+            if (input.keys.a) { axis_strafe += -1; }
+            if (input.keys.d) { axis_strafe += 1; }
+            //forwards
             axis_forwards = 0
-            if (input.keys.a) { axis_forwards += -player.move_speed; }
-            if (input.keys.d) { axis_forwards += player.move_speed; }
+            if (input.keys.s) { axis_forwards += -1; }
+            if (input.keys.w) { axis_forwards += 1; }
             //look
             if (input.mouse.dx) {
                 player.rot += sens * -input.mouse.dx * delta; // -ve = non-inverted mouse
                 input.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
             }
 
-            move(player, axis_strafe, axis_forwards, delta)
+            move(player, axis_forwards, axis_strafe, delta)
         }
 
         const viewport = setup_viewport();
@@ -469,6 +647,9 @@
 
             requestAnimationFrame(() => update());
         };
+
+        player.pos_x = 5 * tilemap.w;
+        player.pos_y = 5 * tilemap.h;
 
         requestAnimationFrame(() => update());
     </script>
