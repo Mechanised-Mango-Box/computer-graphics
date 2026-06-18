@@ -320,13 +320,20 @@ After all that hard work the code should be able to do this:
 ## 3.4 Texture Mapping
 Coloured squares are good and all but they just don't *feel* right...
 
-### 3.4.1 Where was the hit?
+### 2.4.1 How does it work?
+As the name implies when a wall is drawn, the position where the ray hit is mapped to a position on the texture which informs what colour the pixel should be. We call these new positions `u` and `v` rather than `x` and `y`. For example, in the image below, the sampled pixel will be red.
 
+![](./uv.svg)
 
+A very real cake.
 
-Make some quick changes to be able to find the `u` position.
+### 3.4.2 Where was the hit?
 
-Note that we only want the `u` coordinate and not the `v` as we will loop through the whole vertical when we render. As such we should check which side was hit, and use that as the `u` axis. Make sure that the position is a scale from 0 to 1, that is from left to right.
+To do so we can make some quick changes to the raycaster to be able to find the `u` position. to conver from the world/cell space (below) to a the texture/uv space (above).
+
+![](./tex-uv-cell.svg)
+
+Note that we only want the `u` coordinate and not the `v` as we will loop through the whole vertical when we render. As such we should check which side was hit, and use that as the `u` axis. Make sure that the position is a scale from 0 to 1, that is from left to right of the texture.
 
 ```js
 if (cell == '#') {
@@ -358,7 +365,8 @@ if (cell == '#') {
     };
 }
 ```
-- to test this out we can make a hacky "texture" that is red on the left and green on the right
+To test this out we can make a hacky "texture" that is red on the left and green on the right.
+
 ```js
 // Wall
 if (hit.tex_u < 0.5) {
@@ -369,20 +377,26 @@ else {
 }
 ```
 
+It is not very pretty but we know it works now. 
+![](./tex-red-green.png)
+
 ### 3.4.2 Loading a texture
 
 > You can use any image (preferably a square image). Here I used `floor_stone.png` from https://kenney.nl/assets/retro-textures-fantasy.
 > ![](./../resources/textures/floor_stone.png)
 
-- now to do the actual mapping part of texture mapping
-- first to get around cors and keep this file to be able to be run offline convert the image texture to a base64 that can be embedded
+Now this is specificially because I chose to do this on a canvas and want there to be a fully offline file. which means that loading an image in is a bit harder. This requires the image to be embedded within the HTML which it does not support. However since the image is small enough, it can be embedded as a bit of binary data, a `base64` which can then be covnerted before the game starts to an image buffer.
+
+---
+
+First we have to get an image as a `base64`. As I am now on Linux I will use bash. [If you are too lazy to do this, here is what I got.](./../resources/textures/floor_stone.txt)
 
 ```sh
 base64 -i IMAGE > OUTPUT
 ```
-> [If you are too lazy here is what I got](./../resources/textures/floor_stone.txt)
 
-now load the image into memory as a buffer that we can inspect. the canvas already has functionaility to create raw pixel buffers so we will borrow this.
+Now load the image into memory as a buffer that we can inspect. The canvas already has functionality to create raw pixel buffers so we will borrow this (image decoding is not my focus right now and it is a once off function).
+
 ```js
 /**
  * @param {string} b64
@@ -412,7 +426,7 @@ const b64_to_img = async (b64) => {
 const TEX_WALL = await b64_to_img("YOUR B64 STRING HERE");
 ```
 
-### 3.4.2 `X-Y` to `U-V` (Mapping)
+### 3.4.2 Mapping `(x, y)` to `(u, v)`
 Now add change the rendering code to use the texture, converting the `(x, y)` coordinates (cell space) to `(u, v)` (texture space). And tehn pull the colour data, remembering that it is a 1D array of `R, G, B, A, R, G, ...`.
 
 ```js
