@@ -1,5 +1,8 @@
 # 3 Rendering
 
+> [Demo](./wolfenstein-3d.html)
+
+
 Looking from above is awfully boring so time to do what we really came here to do which is to render this in 3D.
 
 ## 3.1 Theory
@@ -311,18 +314,157 @@ const render_scene = (delta, viewport, max_render_dist) => {
 ```
 
 After all that hard work the code should be able to do this:
+
 ![](./rendering-example.png)
 
 ## 3.4 Texture Mapping
+Coloured squares are good and all but they just don't *feel* right...
+
+### 3.4.1 Where was the hit?
 
 
 
+Make some quick changes to be able to find the `u` position.
 
+Note that we only want the `u` coordinate and not the `v` as we will loop through the whole vertical when we render. As such we should check which side was hit, and use that as the `u` axis. Make sure that the position is a scale from 0 to 1, that is from left to right.
 
+```js
+if (cell == '#') {
+    // The horizontal position along a texture (x but for a texture)
+    let tex_u;
+    // Find the position that the ray collided
+    const hit_x = ox + perp_dist * dx;
+    const hit_y = oy + perp_dist * dy;
 
+    if (side == 0) {
+        // Hit a wall aligned with y-axis
+        // So u should be based on the y position
+        tex_u = hit_y - Math.floor(hit_y);
+        // Reverse position when hitting from opposite direction (un-flip so the texture faces the correct way)
+        if (dx < 0) tex_u = 1.0 - tex_u;
+    } else {
+        // Hit a wall aligned with x-axis
+        tex_u = hit_x - Math.floor(hit_x);
+        if (dy > 0) tex_u = 1.0 - tex_u;
+    }
 
+    return {
+        side: side,
+        cell: cell,
+        cell_pos_x: cx,
+        cell_pos_y: cy,
+        perp_dist: perp_dist,
+        tex_u: tex_u
+    };
+}
+```
+- to test this out we can make a hacky "texture" that is red on the left and green on the right
+```js
+// Wall
+if (hit.tex_u < 0.5) {
+    viewport.set_pixel(px, py, 100 * shade, 255 * shade, 100 * shade);
+}
+else {
+    viewport.set_pixel(px, py, 255 * shade, 100 * shade, 100 * shade);
+}
+```
 
+### 3.4.2 Loading a texture
 
-## 3.4 Further Reading:
-1. Lode's Computer Graphics Tutorial - Raycasting *(https://lodev.org/cgtutor/raycasting.html)*
-2. Wikipedia - Digital Differential Analyzer *(https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm))*
+> You can use any image (preferably a square image). Here I used `floor_stone.png` from https://kenney.nl/assets/retro-textures-fantasy.
+> ![](./../resources/textures/floor_stone.png)
+
+- now to do the actual mapping part of texture mapping
+- first to get around cors and keep this file to be able to be run offline convert the image texture to a base64 that can be embedded
+
+```sh
+base64 -i IMAGE > OUTPUT
+```
+> [If you are too lazy here is what I got](./../resources/textures/floor_stone.txt)
+
+now load the image into memory as a buffer that we can inspect. the canvas already has functionaility to create raw pixel buffers so we will borrow this.
+```js
+/**
+ * @param {string} b64
+ * @returns {Promise<Texture>}
+ */
+const b64_to_img = async (b64) => {
+    if (!b64.startsWith("data:")) {
+        b64 = "data:image/png;base64," + b64;
+    }
+
+    const img = new Image();
+    img.src = b64;
+
+    await img.decode(); 
+
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+
+    const { data } = ctx.getImageData(0, 0, img.width, img.height);
+    return { buffer: data, w: img.width, h: img.height };
+}
+
+const TEX_WALL = await b64_to_img("YOUR B64 STRING HERE");
+```
+
+### 3.4.2 `X-Y` to `U-V` (Mapping)
+Now add change the rendering code to use the texture, converting the `(x, y)` coordinates (cell space) to `(u, v)` (texture space). And tehn pull the colour data, remembering that it is a 1D array of `R, G, B, A, R, G, ...`.
+
+```js
+if (hit != null) {
+    // Calc the x/u position first since we already know all that we need for a vertical  
+    // X position of the pixel that maps to the ray hit within the texture
+    let u = Math.floor(hit.tex_u * TEX_WALL.w);
+    // Clamp within texture bounds
+    u = Math.max(0, Math.min(u, TEX_WALL.w - 1));
+
+    // Height of the hit wall
+    const line_height = Math.floor(wall_scale_factor / hit.perp_dist);
+
+    let py_wall_bottom = (h - line_height) / 2;
+    let py_wall_top = (h + line_height) / 2;
+
+    const shade =
+        (1 - Math.sqrt(hit.perp_dist / max_render_dist)) // Shade based on distance
+        * (hit.side === 1 ? 0.6 : 1); // Shade based on side
+
+    // Draw vertical
+    for (let py = 0; py < h; ++py) {
+        if (py < py_wall_bottom) {
+            // Floor
+            viewport.set_pixel(px, py, 39, 45, 45);
+        } else if (py_wall_top < py) {
+            // Celing / Sky
+            viewport.set_pixel(px, py, 25, 40, 100);
+        } else {
+            // TODO: this maths could be optimised later
+            let ty = Math.floor((py - py_wall_bottom) / (py_wall_top - py_wall_bottom) * TEX_WALL.h);
+            // Clamp within texture bounds
+            ty = Math.max(0, Math.min(ty, TEX_WALL.h - 1));
+
+            // Convert to position in texture buffer
+            const uv_idx = (ty * TEX_WALL.w + u) * 4;
+            // Extract as colour 
+            const r = TEX_WALL.buffer[uv_idx];
+            const g = TEX_WALL.buffer[uv_idx + 1];
+            const b = TEX_WALL.buffer[uv_idx + 2];
+
+            // Draw with shading
+            viewport.set_pixel(px, py, r * shade, g * shade, b * shade);
+        }
+    }
+} else {
+    // ERROR - failed to hit tile
+    for (let py = 0; py < h; ++py) {
+        viewport.set_pixel(px, py, 255, 0, 255);
+    }
+}
+```
+
+Which should look like this:
+![](./tex.png)
