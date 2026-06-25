@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Wolfenstein 3D</title>
+    <style>
+        body {
+            background-color: #000000;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        #viewport {
+            width: 1280px;
+            /* display size */
+            height: 720px;
+            image-rendering: pixelated;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Wolfenstein 3D</h1>
+    <div> <canvas id="viewport"></canvas></div>
+    <script>
+        /// MARK: HEADER
+        //#region Santity Preserving Types
+        "use strict";
+
+        // BASIC NUMBER TYPES
+        /**
+         * @typedef {number & { __int__: true }} int
+         */
+
+        /**
+        * @typedef {number & { __int__: true, __range__: "0-255" }} byte
+        */
+
+        /**
+         * @typedef {number & { __float__: true }} float
+         */
+
+        //#endregion
+        //#region Struct Types
+        /**
+         * @typedef {object} Texture
+         * @property {Uint8ClampedArray} buffer
+         * @property {int} w          
+         * @property {int} h         
+         */
+        //#endregion
+        //#region Utils
+        /**
+         * Buffer Index
+         * @param {int} x
+         * @param {int} y
+         * @param {int} w
+         * @return {int}
+         */
+        const bi = (x, y, w) => y * w + x;
+        /**
+         * Buffer Index - Bounds Checked
+         * @param {int} x
+         * @param {int} y
+         * @param {int} w
+         * @param {int} h
+         * @return {int | undefined}
+         */
+        const bi_s = (x, y, w, h) => {
+            if (x >= w || y >= h || x < 0 || y < 0) {
+                // console.error("Out of bounds.")
+                return undefined
+            }
+            return bi(x, y, w)
+        }
+
+        /**
+         * @param {int} w
+         * @param {int} h
+         * @return {Array}
+         */
+        const create_rect_buffer = (w, h) => new Array(w * h);
+        //#endregion
+
+        /// MARK: PROGRAM START
+        (async () => {
+
+            const _DEFAULT_VIEWPORT_W = 400;
+            const _DEFAULT_VIEWPORT_H = 300;
+
+            /**
+             * @return {Viewport}
+             */
+            const setup_viewport = () => {
+                const canvas = document.getElementById("viewport");
+                const ctx = canvas.getContext("2d");
+
+                let viewport_w = _DEFAULT_VIEWPORT_W;
+                /**
+                 * @return {int}
+                 */
+                const get_viewport_w = () => viewport_w;
+                let viewport_h = _DEFAULT_VIEWPORT_H;
+                /**
+                 * @return {int}
+                 */
+                const get_viewport_h = () => viewport_h;
+
+                let imageData;
+                let framebuffer;
+                /**
+                 * @param {int} w
+                 * @param {int} h
+                 * @return {void}
+                 */
+                const set_resolution = (w, h) => {
+                    viewport_w = w;
+                    viewport_h = h;
+
+                    canvas.width = viewport_w;
+                    canvas.height = viewport_h;
+
+                    imageData = ctx.createImageData(viewport_w, viewport_h);
+                    framebuffer = imageData.data;
+                };
+
+                /**
+                 * @param {int} x
+                 * @param {int} y
+                 * @param {byte} r
+                 * @param {byte} g
+                 * @param {byte} b
+                 * @param {byte} a
+                 * @return {void}
+                */
+                const set_pixel = (x, y, r, g, b, a = 255) => {
+                    const i = (((viewport_h - 1) - y) * viewport_w + x) * 4;
+                    framebuffer[i] = r;
+                    framebuffer[i + 1] = g;
+                    framebuffer[i + 2] = b;
+                    framebuffer[i + 3] = a;
+                };
+                /**
+                 * @return {void}
+                 */
+                const clear = () => framebuffer.fill(0);
+
+                /**
+                 * @return {void}
+                 */
+                const render = () => ctx.putImageData(imageData, 0, 0);
+
+                // probs better way/place to do this
+                canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+
+                return {
+                    get_viewport_w,
+                    get_viewport_h,
+                    set_resolution,
+
+                    set_pixel,
+                    clear,
+                    render,
+                };
+            }
+
+            /**
+             * @param {string} str
+             * @param {float} scale
+             */
+            const load_tilemap = (str, scale) => {
+
+                const rows = str.split("\n").map(row => row.trim()).filter(row => row.length > 0);
+
+                const w = rows[0].length;
+                const h = rows.length;
+
+                const tilemap = create_rect_buffer(w, h);
+                let i = 0;
+
+                for (let y = 0; y < h; ++y) {
+                    const ty = h - 1 - y;
+                    if (w != rows[ty].length) {
+                        console.error("Tilemap is of irregular size, must be a rectangle.")
+                        return null;
+                    }
+
+                    for (let x = 0; x < w; ++x) {
+                        const tx = x;
+                        tilemap[i] = rows[ty][tx]
+                        ++i;
+                    }
+                }
+
+                if (i != w * h) {
+                    console.error("Tilemap is of irregular size.")
+                    return null
+                }
+                return {
+                    buffer: tilemap,
+                    w: w,
+                    h: h,
+                    grid_scale: 10
+                }
+            }
+
+            const tilemap = load_tilemap(`
+                                    ###########
+                                    #   #     #
+                                    #   #  #  #
+                                    ## ##     #
+                                    #         #
+                                    #     #####
+                                    #         #
+                                    # #       #
+                                    # ###     #
+                                    #      S  #
+                                    ###########
+                                    `)
+
+            const player = {
+                pos_x: 0,
+                pos_y: 0,
+
+                rot: 0,
+
+                wish_forwards: 0,
+                wish_strafe: 0,
+                move_speed: 25,
+
+                radius: 3,
+            }
+
+            /**
+             * @param {float} delta 
+             */
+            const move = (delta) => {
+                /**
+                 *     -strafe
+                 *       |
+                 *     --@----- > +forwards
+                 *       |
+                 *       v
+                 *     +strafe
+                 */
+                if ((player.wish_forwards != 0 || player.wish_strafe != 0)) {
+                    const length = Math.sqrt(player.wish_forwards * player.wish_forwards + player.wish_strafe * player.wish_strafe);
+                    const local_x = player.wish_forwards / length;
+                    const local_y = player.wish_strafe / length;
+
+                    const looking_x = Math.cos(player.rot);
+                    const looking_y = Math.sin(player.rot);
+
+                    const move_x = local_x * looking_x + local_y * looking_y;
+                    const move_y = local_x * looking_y - local_y * looking_x;
+                    const velocity = player.move_speed * delta;
+                    player.pos_x += move_x * velocity;
+                    player.pos_y += move_y * velocity;
+                }
+            }
+
+            const calc_diag_pen_vec = (circle_x, circle_y, circle_r, vertex_x, vertex_y) => {
+                const normal_x = circle_x - vertex_x;
+                const normal_y = circle_y - vertex_y;
+
+                const dist = Math.sqrt(normal_x * normal_x + normal_y * normal_y);
+
+                const normal_dir_x = normal_x / dist;
+                const normal_dir_y = normal_y / dist;
+
+                const pen_diag_x = (circle_r - dist) * normal_x
+                const pen_diag_y = (circle_r - dist) * normal_y
+                return [pen_diag_x, pen_diag_y]
+            }
+
+            const calc_penetration_vector = (tilemap, player) => {
+                const scale = tilemap.grid_scale;
+                const w = tilemap.w;
+                const h = tilemap.h;
+
+                // Current Tile
+                const tx = Math.floor(player.pos_x / scale);
+                const ty = Math.floor(player.pos_y / scale);
+
+                // Position within cell
+                const rel_x = player.pos_x % scale;
+                const rel_y = player.pos_y % scale;
+
+                // Collider Radius
+                const r = player.radius;
+
+                // Collision mask
+                let flag = 0b00000000;
+                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] != " ")
+                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] != " ")
+                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] != " ")
+                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] != " ")
+                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] != " ")
+                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] != " ")
+                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] != " ")
+                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] != " ")
+                console.log((flag >>> 0).toString(2))
+
+                // Penetration Vector 
+                let pen_x = 0;
+                let pen_y = 0;
+
+                // (flag & mask) == compare
+                if ((flag & 0b11000001) == 0b10000000) {
+                    if (dist_sq(rel_x, rel_y, 0, scale) < r * r) { // top left
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, 0, scale)
+                    }
+                }
+                if ((flag & 0b01110000) == 0b00100000) {
+                    if (dist_sq(rel_x, rel_y, scale, scale) < r * r) { // top right
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, scale, scale)
+                    }
+                }
+                if ((flag & 0b00011100) == 0b00001000) {
+                    if (dist_sq(rel_x, rel_y, scale, 0) < r * r) { // bottom right
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, scale, 0)
+                    }
+                }
+                if ((flag & 0b00000111) == 0b00000010) {
+                    if (dist_sq(rel_x, rel_y, 0, 0) < r * r) { // bottom left
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, 0, 0)
+                    }
+                }
+
+                const scale_sub_r = scale - r; // cache for below
+                // overwrite if needed (will always be an equal or "stronger" repulsion)
+                if (flag & 0b01000000) {
+                    if (rel_y > scale_sub_r) pen_y = scale_sub_r - rel_y; // Up
+                }
+                if (flag & 0b00010000) {
+                    if (rel_x > scale_sub_r) pen_x = scale_sub_r - rel_x; // Right
+                }
+                if (flag & 0b00000100) {
+                    if (rel_y < r) pen_y = r - rel_y; // Down
+                }
+                if (flag & 0b00000001) {
+                    if (rel_x < r) pen_x = r - rel_x; // Left
+                }
+
+                return [pen_x, pen_y]
+            }
+
+            /**
+             * @param {float} delta 
+             */
+            const collide = (delta) => {
+                const [pen_x, pen_y] = calc_penetration_vector(tilemap, player);
+                if (pen_x != 0 || pen_y != 0) {
+                    console.log(pen_x, pen_y)
+                }
+                player.pos_x += pen_x;
+                player.pos_y += pen_y;
+            }
+
+            /**
+             * DDA (https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm))
+             *
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_line = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                // find m = dy/dx
+                const dx = x1 - x0;
+                const dy = y1 - y0;
+
+                // use the more "aggressive" axis (longer) as the step
+                const longest_axis_mangnitude = (Math.abs(dx) >= Math.abs(dy)) ? Math.abs(dx) : Math.abs(dy)
+                // the move along "step axis" by 1 pixel while moving along the other axis by the slope
+                const step_x = dx / longest_axis_mangnitude;
+                const step_y = dy / longest_axis_mangnitude;
+                let x = x0;
+                let y = y0;
+
+                // since we only move 1 pixel in the longest magnitude axis(see above), we can iterate on it per pixel
+                for (
+                    let i = 0; i <= longest_axis_mangnitude; ++i) {
+                    // paint along the steps
+                    viewport.set_pixel(Math.round(x), Math.round(y), // ensure that it is the pixel position not a float
+                        r, g, b, a
+                    );
+
+                    // move to next step
+                    x += step_x;
+                    y += step_y;
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_rect = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                for (let py = y0; py < y1; ++py) {
+                    for (let px = x0; px < x1; ++px) {
+                        viewport.set_pixel(px, py, r, g, b, a)
+                    }
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_rect_hollow = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                // Left + Right edge
+                for (let py = y0; py < y1; ++py) {
+                    viewport.set_pixel(x0, py, r, g, b, a)
+                    viewport.set_pixel(x1, py, r, g, b, a)
+                }
+
+                // Top + Bottom edge
+                for (let px = x0; px < x1; ++px) {
+                    viewport.set_pixel(px, y0, r, g, b, a)
+                    viewport.set_pixel(px, y1, r, g, b, a)
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             */
+            const dist_sq = (x0, y0, x1, y1) => ((x0 - x1) * (x0 - x1)) + ((y0 - y1) * (y0 - y1))
+            /**
+             * @param {int} cx
+             * @param {int} cy
+             * @param {int} cr
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_circle = (cx, cy, cr, r, g, b, a = 255) => {
+                const cr_sq = cr * cr;
+
+                // within an AABB do a brute force circle check
+                for (let py = cy - cr; py < cy + cr; ++py) {
+                    for (let px = cx - cr; px < cx + cr; ++px) {
+                        if (dist_sq(px, py, cx, cy) - cr_sq <= 0) {
+                            viewport.set_pixel(px, py, r, g, b, a)
+                        }
+                    }
+                }
+            }
+
+            const draw_minimap = (delta, viewport, width, height, padding, zoom) => {
+                // assume it is always aligned to the bottom right (can make this a proper thing later)
+                const x1 = viewport.get_viewport_w() - padding
+                const x0 = x1 - width;
+                const y0 = padding;
+                const y1 = y0 + height;
+
+                draw_rect(x0, y0, x1, y1, 10, 10, 10, 255) // BG
+
+                // foreach pixel within the "frame"
+                for (let fpy = 0; fpy < height; ++fpy) {
+                    for (let fpx = 0; fpx < width; ++fpx) {
+                        // frame pixel -> centered on zero
+                        const px = fpx - width / 2;
+                        const py = fpy - height / 2;
+
+                        // Map pixel to world pos (and offset to center on player)
+                        const x = player.pos_x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking
+                        const y = player.pos_y + (py / zoom);
+
+                        // world pos -> tile pos -> tile index (floor)
+                        const ix = Math.floor(x / tilemap.grid_scale);
+                        const iy = Math.floor(y / tilemap.grid_scale);
+
+                        // lookup correct tile and render
+                        const bi = bi_s(ix, iy, tilemap.w, tilemap.h);
+                        if (bi == undefined) { continue };
+                        if (tilemap.buffer[bi] === '#') {
+                            viewport.set_pixel(x0 + fpx, y0 + fpy, 200, 200, 200);
+                        }
+                    }
+                }
+
+                draw_rect_hollow(x0, y0, x1, y1, 255, 255, 255) // Outline
+
+                // draw player (always center)
+                draw_circle(x0 + width / 2, y0 + height / 2, 5, 0, 255, 0)
+            }
+
+
+            const DEG2RAD = Math.PI / 180;
+            const FOV_DEFAULT_DEG = 90 // source-like default
+            let fov = FOV_DEFAULT_DEG * DEG2RAD;
+
+            /**
+             * @param{Tilemap} tilemap
+             * @param{int} ox       
+             * @param{int} oy      
+             * @param{int} dx
+             * @param{int} dy
+             * @param{float} max_dist
+             */
+            const raycast_dda = (tilemap, ox, oy, dx, dy, max_dist) => {
+                // Scale positions to tilemap coords
+                ox /= tilemap.grid_scale;
+                oy /= tilemap.grid_scale;
+                dx /= tilemap.grid_scale;
+                dy /= tilemap.grid_scale;
+                max_dist /= tilemap.grid_scale;
+
+                // Cell positions are always ints
+                let cx = Math.floor(ox);
+                let cy = Math.floor(oy);
+
+                // Diagonal distance from the edges of x to x+1 (or y to y+1)
+                const diag_dist_x = Math.abs(1 / dx);
+                const diag_dist_y = Math.abs(1 / dy);
+
+                // Distance to nearest edge along said axis / distance travelled along the axis
+                let edge_dist_x;
+                let edge_dist_y;
+
+                // Direction to step in per axis
+                let step_x;
+                let step_y;
+
+                // Calculate initial step (to a cell edge)
+                if (dx < 0) {
+                    step_x = -1;
+                    edge_dist_x = (ox - cx) * diag_dist_x;
+                } else {
+                    step_x = 1;
+                    edge_dist_x = (cx + 1.0 - ox) * diag_dist_x;
+                }
+
+                if (dy < 0) {
+                    step_y = -1;
+                    edge_dist_y = (oy - cy) * diag_dist_y;
+                } else {
+                    step_y = 1;
+                    edge_dist_y = (cy + 1.0 - oy) * diag_dist_y;
+                }
+
+                let side = 0;
+                let perp_dist = 0;
+
+                // DDA loop
+                while (perp_dist <= max_dist) {
+                    // Choose the axis to "snap" to which requires moving along the diagonal the least
+                    if (edge_dist_x < edge_dist_y) {
+                        perp_dist = edge_dist_x;
+                        edge_dist_x += diag_dist_x;
+                        cx += step_x;
+                        side = 0;
+                    } else {
+                        perp_dist = edge_dist_y;
+                        edge_dist_y += diag_dist_y;
+                        cy += step_y;
+                        side = 1;
+                    }
+
+                    const bi = bi_s(cx, cy, tilemap.w, tilemap.h);
+                    if (bi == undefined) {
+                        return null;
+                    }
+
+                    const cell = tilemap.buffer[bi];
+                    if (cell == '#') {
+                        // The horizontal position along a texture (x but for a texture)
+                        let tex_u;
+                        // Find the position that the ray collided
+                        const hit_x = ox + perp_dist * dx;
+                        const hit_y = oy + perp_dist * dy;
+
+                        if (side == 0) {
+                            // Hit a wall aligned with y-axis
+                            // So u should be based on the y position
+                            tex_u = hit_y - Math.floor(hit_y);
+                            // Reverse position when hitting from opposite direction (un-flip so the texture faces the right way)
+                            if (dx < 0) tex_u = 1.0 - tex_u;
+                        } else {
+                            // Hit a wall aligned with x-axis
+                            tex_u = hit_x - Math.floor(hit_x);
+                            if (dy > 0) tex_u = 1.0 - tex_u;
+                        }
+
+                        return {
+                            side: side,
+                            cell: cell,
+                            cell_pos_x: cx,
+                            cell_pos_y: cy,
+                            perp_dist: perp_dist,
+                            tex_u: tex_u
+                        };
+                    }
+                }
+                return null;
+            };
+
+
+
+            /**
+             * @param {string} b64
+             * @returns {Promise<Texture>}
+             */
+            const b64_to_img = async (b64) => {
+                if (!b64.startsWith("data:")) {
+                    b64 = "data:image/png;base64," + b64;
+                }
+
+                const img = new Image();
+                img.src = b64;
+
+                await img.decode();
+
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+
+                const { data } = ctx.getImageData(0, 0, img.width, img.height);
+                return { buffer: data, w: img.width, h: img.height };
+            }
+
+            const TEX_WALL = await b64_to_img("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAABGdBTUEAALGPC/xhBQAAAv1QTFRFTU9Xc3R9iIqVY2ZvQ0VLhIaRam13SUtSZGduSkxSe32IYWNreHuEbW95fH2HcHN7a254j5KcbG9+h4qUYWNqaWx2cXJ9dXmFbXB4hIeTeX2JgIKNZGVuREZMe3+LeHqGeXuGiYuWaWx5cHF7aWt3cXOAYGJsa259Y2VzZ2p3XF5mjI+benyHaWp0g4WSW15lR0hNQkNKb3B6TE5VTk9VXV9nX2FobG13UlRbfoGNXF9mYWRrWl1lQ0VMc3aAa213dniDiYyYfYGMhoiTcXR+cHJ+ZmlygYOQR0lQfH+KdHaBYGJpfH6JVlhgc3aEfX+LhYeSc3eEc3WBfICNaWlzeHqHdHeFcnWBbnGAWVxjUFJYfoCMY2ZtbW54SktTWFtia2x2d3iCT1BXb3KAVlhfV1phX2JqSEpQSktRVVdfenyKeXuHgoSRZWhxW11lV1lgdniGP0FHfX+KVVhffoCNhIaTZmhwaGp0en6Kh4mUdHiFam16d3mHfH6MZGd1cnSDeHuHbG98cHOBeXyIcXSAcHN/c3aCf4GOeXuFS0xTdXeCdnmHc3WEbG54amx2Z2l0QEJIdHaFZWh2a257dXiES01UWltkVFZdUlNaUlRcc3WAZGdwamx3d3mGTU5Ve32LcnWDdXiGaGp1dHeDWFpibG55i46ZTlBXZmhycnR/io2YUlNbcXN+foGOcHJ9eXuJbXB9jZCbU1Vcd3qGWlxkb3F8hYiTTU9Wf4KPeHqIb3J+V1lhYGJraWt2UFJZaWt1YWNsbW96dXeGfYCNdnmFiYyXWVtjZWdxa214Zml3XF5nZGVvh4qVZ2lzY2VuVFZeg4aSfH+MhomUbnB7W1xlUVNaiIuWYmRtZ2p4W11mhIeSZGZwX2BpX2FqgIOPXV9ofYGNT1FYe36KXmBpf4KOgoWRe36LgYSQaGt5en2KfICMfoKOfH+Len2JaWx6eHuIeXyJam17d3qHdnmGa258dHeEc3aDbXB+bnF+bG99dXiFcHOAcXSBcnWCb3J/6sqI2gAADOdJREFUWMMlVwWU7MpxVeIkdtAOc+JwYmZmZsbPzMzMzPSY/ZiZl/ctM+/ODvOI1VIznJSe5+zO6Gimq6vvvXWrZJVWLuW2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");
+
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             * @param {float} max_render_dist
+             */
+            const render_scene = (delta, viewport, max_render_dist) => {
+                const w = viewport.get_viewport_w();
+                const h = viewport.get_viewport_h();
+
+                // Camera / player look direction  
+                const look_dir_x = Math.cos(player.rot);
+                const look_dir_y = Math.sin(player.rot);
+
+                // The camera plane (a line in 2D) defined by a 2D vector
+                //                      
+                //                         plane width
+                //                     +-----------------+ 
+                //                     ___________________ 
+                //                  +  \        |        /
+                //                  |   \       |       /
+                //                  |    \      |      /
+                //                  |     \     |     /
+                //   plane distance |      \    |    /
+                //                  |       \   |   /
+                //                  |        \  |  /   
+                //                  |         \ | / \___ FoV   
+                //                  |          \|/
+                //                  +           v
+                //                              @
+                //                            
+                //
+
+                // Scaling the camera plane based on the fov (a ratio between the distance of the plane and the (half-)width)
+                const fov_proportion = Math.tan(fov / 2)
+
+                // The camera plane (x+ is the "forward" of the camera at rotation = 0)
+                //
+                //     y+
+                //     ^            
+                //     |          /
+                //     +--> x+   / 
+                //              /  
+                //             /   
+                //            /    
+                //           @----->  look dir            + 
+                //            \                           | camera plane
+                //             \                          |
+                //              \                         v
+                //               \ 
+                //                \
+                //                 
+                // Convert the camera plane from local space to world space
+                const cam_plane_x = -look_dir_y * fov_proportion;
+                const cam_plane_y = look_dir_x * fov_proportion;
+
+                // Cache the calculation of the wall height scaling
+                const wall_scale_factor = (h * tilemap.grid_scale) / fov_proportion;
+
+                // Foreach vertical pixel
+                for (let px = 0; px < w; ++px) {
+                    // Map the pixel to the offset from the center of the plane
+                    const offset_along_plane = 1 - (2 * px / w);
+                    // Take the raycast direction
+                    const dx = look_dir_x + cam_plane_x * offset_along_plane;
+                    const dy = look_dir_y + cam_plane_y * offset_along_plane;
+
+                    const hit = raycast_dda(tilemap, player.pos_x, player.pos_y, dx, dy, max_render_dist);
+                    if (hit != null) {
+                        // Calc the x/u position first since we already know all that we need for a vertical  
+                        // X position of the pixel that maps to the ray hit within the texture
+                        let u = Math.floor(hit.tex_u * TEX_WALL.w);
+                        // Clamp within texture bounds
+                        u = Math.max(0, Math.min(u, TEX_WALL.w - 1));
+
+                        // Height of the hit wall
+                        const line_height = Math.floor(wall_scale_factor / hit.perp_dist);
+
+                        let py_wall_bottom = (h - line_height) / 2;
+                        let py_wall_top = (h + line_height) / 2;
+
+                        const shade =
+                            (1 - Math.sqrt(hit.perp_dist / max_render_dist)) // Shade based on distance
+                            * (hit.side === 1 ? 0.6 : 1); // Shade based on side
+
+                        // Draw vertical
+                        for (let py = 0; py < h; ++py) {
+                            if (py < py_wall_bottom) {
+                                // Floor
+                                viewport.set_pixel(px, py, 39, 45, 45);
+                            } else if (py_wall_top < py) {
+                                // Celing / Sky
+                                viewport.set_pixel(px, py, 25, 40, 100);
+                            } else {
+                                // TODO: this maths could be optimised later
+                                let ty = Math.floor((py - py_wall_bottom) / (py_wall_top - py_wall_bottom) * TEX_WALL.h);
+                                // Clamp within texture bounds
+                                ty = Math.max(0, Math.min(ty, TEX_WALL.h - 1));
+
+                                // Convert to position in texture buffer
+                                const uv_idx = (ty * TEX_WALL.w + u) * 4;
+                                // Extract as colour 
+                                const r = TEX_WALL.buffer[uv_idx];
+                                const g = TEX_WALL.buffer[uv_idx + 1];
+                                const b = TEX_WALL.buffer[uv_idx + 2];
+
+                                // Draw with shading
+                                viewport.set_pixel(px, py, r * shade, g * shade, b * shade);
+                            }
+                        }
+                    } else {
+                        // ERROR - failed to hit tile
+                        for (let py = 0; py < h; ++py) {
+                            viewport.set_pixel(px, py, 255, 0, 255);
+                        }
+                    }
+                }
+            };
+
+            /// MARK: DRAW TICK
+            const draw = (delta, viewport) => {
+                render_scene(delta, viewport, 1500)
+
+                draw_minimap(delta, viewport, 300, 250, 5, 2);
+            };
+
+            const tick_rate = null; // TODO: remove input from being read on this tick rate
+            const render_fps = null;
+
+            let physics_last_frame = performance.now();
+            let render_last_frame = performance.now();
+            let physics_delta = 0;
+            let render_delta = 0;
+
+            let sens = 0.5;
+            const input = {
+                input_raw: {
+                    keys: {},
+                    mouse: {
+                        dx: 0, dy: 0,
+                        buttons: {}
+                    },
+                }
+            };
+
+            const process_input = (delta) => {
+                //strafe
+                player.wish_strafe = 0
+                if (input.input_raw.keys.a) { player.wish_strafe += -1; }
+                if (input.input_raw.keys.d) { player.wish_strafe += 1; }
+                //forwards
+                player.wish_forwards = 0
+                if (input.input_raw.keys.s) { player.wish_forwards += -1; }
+                if (input.input_raw.keys.w) { player.wish_forwards += 1; }
+                //look
+                if (input.input_raw.mouse.dx) {
+                    player.rot += sens * -input.input_raw.mouse.dx * delta; // -ve = non-inverted mouse
+                    input.input_raw.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
+                }
+            }
+
+            /// MARK: PHYSICS TICK
+            const tick = (delta) => {
+                process_input(delta);
+
+                move(delta)
+                collide(delta)
+            }
+
+            const viewport = setup_viewport();
+            viewport.set_resolution(1280, 720);
+
+
+            // Keyboard
+            ["keydown", "keyup"].forEach(type => {
+                window.addEventListener(type, e => {
+                    input.input_raw.keys[e.key] = type === "keydown";
+                });
+            });
+
+            // Mouse
+            ["mousedown", "mouseup"].forEach(type => {
+                window.addEventListener(type, e => {
+                    input.input_raw.mouse.buttons[e.button] = type === "mousedown";
+                });
+            });
+
+            window.addEventListener("mousemove", e => {
+                input.input_raw.mouse.dx = e.movementX;
+                input.input_raw.mouse.dy = e.movementY;
+            });
+
+            /// MARK: UPDATE
+            const update = () => {
+                const current_frame = performance.now();
+
+                physics_delta = (current_frame - physics_last_frame) / 1000;
+                if (tick_rate == null || physics_delta >= 1 / tick_rate) {
+                    tick(physics_delta);
+                    physics_last_frame = current_frame;
+                }
+
+                render_delta = (current_frame - render_last_frame) / 1000;
+                if (render_fps == null || render_delta >= 1 / render_fps) {
+                    viewport.clear();
+                    draw(render_delta, viewport);
+                    viewport.render();
+                    render_last_frame = current_frame;
+                }
+
+                requestAnimationFrame(() => update());
+            };
+
+            player.pos_x = 5 * tilemap.w;
+            player.pos_y = 5 * tilemap.h;
+
+            requestAnimationFrame(() => update());
+        })();
+    </script>
+</body>
+
+</html>
