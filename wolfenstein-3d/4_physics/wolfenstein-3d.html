@@ -268,16 +268,16 @@
             }
 
             const calc_diag_pen_vec = (circle_x, circle_y, circle_r, vertex_x, vertex_y) => {
-                const normal_x = circle_x - vertex_x;
-                const normal_y = circle_y - vertex_y;
+                const dx = circle_x - vertex_x;
+                const dy = circle_y - vertex_y;
 
-                const dist = Math.sqrt(normal_x * normal_x + normal_y * normal_y);
+                const dist = Math.sqrt(dx * dx + dy * dy);
 
-                const normal_dir_x = normal_x / dist;
-                const normal_dir_y = normal_y / dist;
+                const nx = dx / dist;
+                const ny = dy / dist;
 
-                const pen_diag_x = (circle_r - dist) * normal_x
-                const pen_diag_y = (circle_r - dist) * normal_y
+                const pen_diag_x = (circle_r - dist) * nx
+                const pen_diag_y = (circle_r - dist) * ny
                 return [pen_diag_x, pen_diag_y]
             }
 
@@ -817,7 +817,7 @@
                 if (input.input_raw.keys.w) { player.wish_forwards += 1; }
                 //look
                 if (input.input_raw.mouse.dx) {
-                    player.rot += sens * -input.input_raw.mouse.dx ; // -ve = non-inverted mouse
+                    player.rot += sens * -input.input_raw.mouse.dx; // -ve = non-inverted mouse
                     input.input_raw.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
                 }
             }
