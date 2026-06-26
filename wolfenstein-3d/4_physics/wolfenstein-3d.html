@@ -261,6 +261,7 @@
                     const move_x = local_x * looking_x + local_y * looking_y;
                     const move_y = local_x * looking_y - local_y * looking_x;
                     const velocity = player.move_speed * delta;
+                    
                     player.pos_x += move_x * velocity;
                     player.pos_y += move_y * velocity;
                 }
@@ -306,7 +307,7 @@
                 flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] != " ")
                 flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] != " ")
                 flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] != " ")
-                console.log((flag >>> 0).toString(2))
+                // console.log((flag >>> 0).toString(2))
 
                 // Penetration Vector 
                 let pen_x = 0;
@@ -357,9 +358,6 @@
              */
             const collide = (delta) => {
                 const [pen_x, pen_y] = calc_penetration_vector(tilemap, player);
-                if (pen_x != 0 || pen_y != 0) {
-                    console.log(pen_x, pen_y)
-                }
                 player.pos_x += pen_x;
                 player.pos_y += pen_y;
             }
@@ -797,7 +795,7 @@
             let physics_delta = 0;
             let render_delta = 0;
 
-            let sens = 0.5;
+            let sens = 0.001;
             const input = {
                 input_raw: {
                     keys: {},
@@ -819,7 +817,7 @@
                 if (input.input_raw.keys.w) { player.wish_forwards += 1; }
                 //look
                 if (input.input_raw.mouse.dx) {
-                    player.rot += sens * -input.input_raw.mouse.dx * delta; // -ve = non-inverted mouse
+                    player.rot += sens * -input.input_raw.mouse.dx ; // -ve = non-inverted mouse
                     input.input_raw.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
                 }
             }
@@ -851,8 +849,8 @@
             });
 
             window.addEventListener("mousemove", e => {
-                input.input_raw.mouse.dx = e.movementX;
-                input.input_raw.mouse.dy = e.movementY;
+                input.input_raw.mouse.dx += e.movementX;
+                input.input_raw.mouse.dy += e.movementY;
             });
 
             /// MARK: UPDATE
