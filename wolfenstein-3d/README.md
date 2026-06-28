@@ -3,13 +3,19 @@
 The lesser known predecessor to Doom.
 
 ## Demo
-[Link](./wolfenstein-3d.html)
+[Link](./4_physics/wolfenstein-3d.html)
 
 ## Walkthrough
+### Core
 1. [Setup](./1_setup/README.md)
 2. [Flatworld (Minimap)](./2_flatworld/README.md)
 3. [Rendering](./3_rendering/README.md)
-4. [Physics - WIP](./4_physics/README.md)
+4. [Physics](./4_physics/README.md)
+
+### Extras
+5. [Mobile Controls](./5_mobile/README.md)
+- different tile types
+- scope in (fov trick)
 
 ## Q&A
 > What is this?
