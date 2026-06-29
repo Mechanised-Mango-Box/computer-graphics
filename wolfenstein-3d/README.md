@@ -14,8 +14,10 @@ The lesser known predecessor to Doom.
 
 ### Extras
 5. [Mobile Controls + Movement](./5_mobile/README.md)
-6. different tile types
-- scope in (fov trick)
+6. [Multiple Textures](./6_more_texture/)
+
+### WIP
+- Scope In / Run Effect (FoV Tricks)
 
 ## Q&A
 > What is this?

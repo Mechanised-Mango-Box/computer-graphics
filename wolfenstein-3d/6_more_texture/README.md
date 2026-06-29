@@ -2,7 +2,7 @@
 
 > [Demo](./wolfenstein-3d.html)
 
-NFGJSFGKNKSRNTGKNJSGRNKLRGNKLJSRGKJLRG
+The engine already supports multiple textures, I just never used it, so here it is.
 
 ## 6.1 Generating More Textures
 
