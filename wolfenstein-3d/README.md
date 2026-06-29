@@ -3,7 +3,7 @@
 The lesser known predecessor to Doom.
 
 ## Demo
-[Link](./5_mobile/wolfenstein-3d.html)
+[Link](./6_more_texture/wolfenstein-3d.html)
 
 ## Walkthrough
 ### Core
@@ -14,7 +14,7 @@ The lesser known predecessor to Doom.
 
 ### Extras
 5. [Mobile Controls + Movement](./5_mobile/README.md)
-6. [Multiple Textures](./6_more_texture/)
+6. [Multiple Textures](./6_more_texture/README.md)
 
 ### WIP
 - Scope In / Run Effect (FoV Tricks)
