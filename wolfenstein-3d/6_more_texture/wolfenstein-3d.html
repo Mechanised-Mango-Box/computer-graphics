@@ -727,7 +727,7 @@
                         // lookup correct tile and render
                         const bi = bi_s(ix, iy, tilemap.w, tilemap.h);
                         if (bi == undefined) { continue };
-                        if (tilemap.buffer[bi] === '#') {
+                        if (tilemap.buffer[bi] != ' ') {
                             viewport.set_pixel(x0 + fpx, y0 + fpy, 200, 200, 200);
                         }
                     }
@@ -1157,8 +1157,13 @@
 
                 requestAnimationFrame(() => update());
             };
-            player.x = 200;
-            player.y = 20 ;
+
+            /// MARK: START LEVEL
+            // Copied initial values from a demo screenshot
+            // kinda hacky
+            player.rot = 1.359999999999998
+            player.x = 433.0206655147799
+            player.y = 18.405759578792253
 
             requestAnimationFrame(() => update());
         })();

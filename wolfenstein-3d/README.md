@@ -1,9 +1,12 @@
 # Wolfenstein 3D
 
-The lesser known predecessor to Doom.
+A recreation of the lesser known predecessor to Doom.
 
 ## Demo
+
 [Link](./6_more_texture/wolfenstein-3d.html)
+
+![](./6_more_texture/texture-showcase.png)
 
 ## Walkthrough
 ### Core
