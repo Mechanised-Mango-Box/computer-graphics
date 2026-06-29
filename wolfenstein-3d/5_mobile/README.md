@@ -27,7 +27,7 @@ const bind_virtual_button = (button, bind) => {
     button.addEventListener("mousedown", e => {
         input.virtual[bind] = true;
         e.preventDefault();
-    });
+    }, { passive: false });
 
     button.addEventListener("mouseup", e => {
         input.virtual[bind] = false;
@@ -94,12 +94,13 @@ const process_input = (delta) => {
 }
 ```
 
-## 5.2 Acceleration Based Movement
+I also added a resolution and FoV slider although no all sizes are fully tested 
+
+## 5.3 Acceleration Based Movement
 
 I prefer a more Source-like movement which uses acceleration based movement.
 
 ```js
-let is_moving_input = false;
 /**
  * @param {float} delta 
  */
@@ -113,49 +114,59 @@ const move = (delta) => {
      *     +strafe
      */
 
-    is_moving_input = (player.wish_forward != 0 || player.wish_strafe != 0)
+    const speed = Math.hypot(player.vx, player.vy);
 
-    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    // Friction
+    if (speed > 0) {
+        // stop speed (stop scaling friction if lower than stop_speed - keeping friction high)
+        const control = speed < player.stop_speed ? player.stop_speed : speed;
 
-    if (is_moving_input) {
-        // accel
-        const length = Math.sqrt(player.wish_forward * player.wish_forward + player.wish_strafe * player.wish_strafe);
-        const local_x = player.wish_forward / length;
-        const local_y = player.wish_strafe / length;
+        const drop = control * player.friction * delta;
 
-        const looking_x = Math.cos(player.rot);
-        const looking_y = Math.sin(player.rot);
+        const new_speed = Math.max(speed - drop, 0);
+        const scale = new_speed / speed;
 
-        const move_x = local_x * looking_x + local_y * looking_y;
-        const move_y = local_x * looking_y - local_y * looking_x;
-
-        player.vx += move_x * player.accel * delta;
-        player.vy += move_y * player.accel * delta;
-
-        const current_speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-        if (current_speed > player.max_speed) {
-            const clamp_scaler = player.max_speed / current_speed;
-            player.vx *= clamp_scaler;
-            player.vy *= clamp_scaler;
-        }
-    } else {
-        // friction
-        const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-
-        if (speed > 0) {
-            const drop = speed * player.friction * delta;
-            let new_speed = speed - drop;
-            if (new_speed < 0) new_speed = 0;
-
-            const friction_force = new_speed / speed;
-            player.vx *= friction_force;
-            player.vy *= friction_force;
-        } else {
-            player.vx = 0;
-            player.vy = 0;
-        }
+        player.vx *= scale;
+        player.vy *= scale;
     }
 
+    const f = player.wish_forward;
+    const s = player.wish_strafe;
+
+    const wish_len = Math.hypot(f, s);
+    if (wish_len == 0) {
+        player.x += player.vx * delta;
+        player.y += player.vy * delta;
+        return;
+    }
+
+    const lf = f / wish_len;
+    const ls = s / wish_len;
+
+    const cos = Math.cos(player.rot);
+    const sin = Math.sin(player.rot);
+
+    const wish_x = lf * cos + ls * sin;
+    const wish_y = lf * sin - ls * cos;
+
+    let wish_speed = player.max_speed;
+    if (wish_speed > player.max_speed) {
+        wish_speed = player.max_speed;
+    }
+
+    // Accel
+    const current_speed_in_wish_dir = player.vx * wish_x + player.vy * wish_y;
+    const add_speed = wish_speed - current_speed_in_wish_dir;
+
+    if (add_speed > 0) {
+        const accel = player.accel * delta * wish_speed;
+        const applied = Math.min(accel, add_speed);
+
+        player.vx += wish_x * applied;
+        player.vy += wish_y * applied;
+    }
+
+    // Apply velocity
     player.x += player.vx * delta;
     player.y += player.vy * delta;
 }

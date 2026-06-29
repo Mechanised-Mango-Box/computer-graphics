@@ -3,7 +3,7 @@
 The lesser known predecessor to Doom.
 
 ## Demo
-[Link](./4_physics/wolfenstein-3d.html)
+[Link](./5_mobile/wolfenstein-3d.html)
 
 ## Walkthrough
 ### Core

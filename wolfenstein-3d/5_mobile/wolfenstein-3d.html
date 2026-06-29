@@ -103,6 +103,31 @@
 <body class="box center vert">
     <h1>Wolfenstein 3D</h1>
     <canvas id="viewport" class="viewport"></canvas>
+
+    <form autocomplete="off">
+        <label for="res-select">Select Res:</label>
+        <select id="res-select" required>
+            <optgroup label="Original Resolution (16:10)">
+                <option value="0">320x200</option>
+            </optgroup>
+            <optgroup label="Square (4:3)">
+                <option value="1">320x240</option>
+                <option value="2">640x480</option>
+                <option value="3">900x720</option>
+                <option value="4">1350x1080 (5:4)</option>
+            </optgroup>
+            <optgroup label="Widescreen (16:9)">
+                <option value="5">432x240</option>
+                <option value="6">854x480</option>
+                <option value="7" selected>1280x720</option>
+                <option value="8">1920x1080</option>
+            </optgroup>
+        </select>
+
+        <label for="fov-slider">FoV (Degrees): </label>
+        <input type="range" id="fov" value="90" min="45" max="120" step="15">
+    </form>
+
     <div id="controls">
         <div class="box center">
             <div class="box center vert">
@@ -181,8 +206,12 @@
         /// MARK: PROGRAM START
         (async () => {
 
-            const _DEFAULT_VIEWPORT_W = 400;
-            const _DEFAULT_VIEWPORT_H = 300;
+            const _DEFAULT_VIEWPORT_W = 1280;
+            const _DEFAULT_VIEWPORT_H = 720;
+
+            const DEG2RAD = Math.PI / 180;
+            const FOV_DEFAULT_DEG = 90 // source-like default
+            let fov = FOV_DEFAULT_DEG * DEG2RAD;
 
             /**
              * @return {Viewport}
@@ -248,6 +277,37 @@
 
                 // probs better way/place to do this
                 canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+
+                const resolutions = {
+                    "0": { w: 320, h: 200, aspect: "16 / 10" },
+                    "1": { w: 320, h: 240, aspect: "4 / 3" },
+                    "2": { w: 640, h: 480, aspect: "4 / 3" },
+                    "3": { w: 900, h: 720, aspect: "4 / 3" },
+                    "4": { w: 1350, h: 1080, aspect: "5 / 4" },
+                    "5": { w: 432, h: 240, aspect: "16 / 9" },
+                    "6": { w: 854, h: 480, aspect: "16 / 9" },
+                    "7": { w: 1280, h: 720, aspect: "16 / 9" },
+                    "8": { w: 1920, h: 1080, aspect: "16 / 9" }
+                };
+
+                const res_selector = document.getElementById("res-select");
+                res_selector.addEventListener("change", (e) => {
+                    const selected = resolutions[e.target.value];
+
+                    if (selected) {
+                        set_resolution(selected.w, selected.h);
+                        canvas.style.aspectRatio = selected.aspect;
+                        console.log(`Resolution updated to: ${selected.w}x${selected.h} (${selected.aspect})`);
+                    }
+                    else {
+                        console.error("Bad resolution.")
+                    }
+                });
+
+                const fov_slider = document.getElementById("fov");
+                fov_slider.addEventListener("input", (e) => {
+                    fov = parseFloat(e.target.value * DEG2RAD);
+                })
 
                 return {
                     get_viewport_w,
@@ -323,9 +383,10 @@
                 vx: 0,
                 vy: 0,
 
-                max_speed: 20,
-                accel: 100,
-                friction: 6,
+                max_speed: 25,
+                accel: 10,
+                friction: 5,
+                stop_speed: 8,
 
                 radius: 3,
 
@@ -333,7 +394,6 @@
                 wish_strafe: 0,
             }
 
-            let is_moving_input = false;
             /**
              * @param {float} delta 
              */
@@ -347,49 +407,59 @@
                  *     +strafe
                  */
 
-                is_moving_input = (player.wish_forward != 0 || player.wish_strafe != 0)
+                const speed = Math.hypot(player.vx, player.vy);
 
-                const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+                // Friction
+                if (speed > 0) {
+                    // stop speed (stop scaling friction if lower than stop_speed - keeping friction high)
+                    const control = speed < player.stop_speed ? player.stop_speed : speed;
 
-                if (is_moving_input) {
-                    // accel
-                    const length = Math.sqrt(player.wish_forward * player.wish_forward + player.wish_strafe * player.wish_strafe);
-                    const local_x = player.wish_forward / length;
-                    const local_y = player.wish_strafe / length;
+                    const drop = control * player.friction * delta;
 
-                    const looking_x = Math.cos(player.rot);
-                    const looking_y = Math.sin(player.rot);
+                    const new_speed = Math.max(speed - drop, 0);
+                    const scale = new_speed / speed;
 
-                    const move_x = local_x * looking_x + local_y * looking_y;
-                    const move_y = local_x * looking_y - local_y * looking_x;
-
-                    player.vx += move_x * player.accel * delta;
-                    player.vy += move_y * player.accel * delta;
-
-                    const current_speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-                    if (current_speed > player.max_speed) {
-                        const clamp_scaler = player.max_speed / current_speed;
-                        player.vx *= clamp_scaler;
-                        player.vy *= clamp_scaler;
-                    }
-                } else {
-                    // friction
-                    const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
-
-                    if (speed > 0) {
-                        const drop = speed * player.friction * delta;
-                        let new_speed = speed - drop;
-                        if (new_speed < 0) new_speed = 0;
-
-                        const friction_force = new_speed / speed;
-                        player.vx *= friction_force;
-                        player.vy *= friction_force;
-                    } else {
-                        player.vx = 0;
-                        player.vy = 0;
-                    }
+                    player.vx *= scale;
+                    player.vy *= scale;
                 }
 
+                const f = player.wish_forward;
+                const s = player.wish_strafe;
+
+                const wish_len = Math.hypot(f, s);
+                if (wish_len == 0) {
+                    player.x += player.vx * delta;
+                    player.y += player.vy * delta;
+                    return;
+                }
+
+                const lf = f / wish_len;
+                const ls = s / wish_len;
+
+                const cos = Math.cos(player.rot);
+                const sin = Math.sin(player.rot);
+
+                const wish_x = lf * cos + ls * sin;
+                const wish_y = lf * sin - ls * cos;
+
+                let wish_speed = player.max_speed;
+                if (wish_speed > player.max_speed) {
+                    wish_speed = player.max_speed;
+                }
+
+                // Accel
+                const current_speed_in_wish_dir = player.vx * wish_x + player.vy * wish_y;
+                const add_speed = wish_speed - current_speed_in_wish_dir;
+
+                if (add_speed > 0) {
+                    const accel = player.accel * delta * wish_speed;
+                    const applied = Math.min(accel, add_speed);
+
+                    player.vx += wish_x * applied;
+                    player.vy += wish_y * applied;
+                }
+
+                // Apply velocity
                 player.x += player.vx * delta;
                 player.y += player.vy * delta;
             }
@@ -426,14 +496,14 @@
 
                 // Collision mask
                 let flag = 0b00000000;
-                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] != " ")
-                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] != " ")
-                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] != " ")
-                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] != " ")
-                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] != " ")
-                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] != " ")
-                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] != " ")
-                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] != " ")
+                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] == '#')
+                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] == '#')
+                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] == '#')
+                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] == '#')
+                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] == '#')
+                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] == '#')
+                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] == '#')
+                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] == '#')
                 // console.log((flag >>> 0).toString(2))
 
                 // Penetration Vector 
@@ -604,14 +674,23 @@
                 // within an AABB do a brute force circle check
                 for (let py = cy - cr; py < cy + cr; ++py) {
                     for (let px = cx - cr; px < cx + cr; ++px) {
-                        if (dist_sq(px, py, cx, cy) - cr_sq <= 0) {
+                        if (dist_sq(px, py, cx, cy) - cr_sq < 0) {
                             viewport.set_pixel(px, py, r, g, b, a)
                         }
                     }
                 }
             }
 
-            const draw_minimap = (delta, viewport, width, height, padding, zoom) => {
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             * @param {int} width
+             * @param {int} height
+             * @param {int} padding
+             * @param {float} zoom
+             * @param {float} circle_size
+             */
+            const draw_minimap = (delta, viewport, width, height, padding, zoom, circle_size) => {
                 // assume it is always aligned to the bottom right (can make this a proper thing later)
                 const x1 = viewport.get_viewport_w() - padding
                 const x0 = x1 - width;
@@ -624,8 +703,8 @@
                 for (let fpy = 0; fpy < height; ++fpy) {
                     for (let fpx = 0; fpx < width; ++fpx) {
                         // frame pixel -> centered on zero
-                        const px = fpx - width / 2;
-                        const py = fpy - height / 2;
+                        const px = Math.floor(fpx - width / 2);
+                        const py = Math.floor(fpy - height / 2);
 
                         // Map pixel to world pos (and offset to center on player)
                         const x = player.x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking
@@ -647,13 +726,9 @@
                 draw_rect_hollow(x0, y0, x1, y1, 255, 255, 255) // Outline
 
                 // draw player (always center)
-                draw_circle(x0 + width / 2, y0 + height / 2, 5, 0, 255, 0)
+                draw_circle(Math.floor(x0 + width / 2), Math.floor(y0 + height / 2), circle_size, 0, 255, 0)
+                viewport.set_pixel(Math.floor(x0 + width / 2), Math.floor(y0 + height / 2), 0, 255, 0);
             }
-
-
-            const DEG2RAD = Math.PI / 180;
-            const FOV_DEFAULT_DEG = 90 // source-like default
-            let fov = FOV_DEFAULT_DEG * DEG2RAD;
 
             /**
              * @param{Tilemap} tilemap
@@ -797,6 +872,7 @@
             const render_scene = (delta, viewport, max_render_dist) => {
                 const w = viewport.get_viewport_w();
                 const h = viewport.get_viewport_h();
+                const aspect_ratio = w / h;
 
                 // Camera / player look direction  
                 const look_dir_x = Math.cos(player.rot);
@@ -822,7 +898,7 @@
                 //
 
                 // Scaling the camera plane based on the fov (a ratio between the distance of the plane and the (half-)width)
-                const fov_proportion = Math.tan(fov / 2)
+                const base_fov_scale = Math.tan(fov / 2)
 
                 // The camera plane (x+ is the "forward" of the camera at rotation = 0)
                 //
@@ -841,11 +917,11 @@
                 //                \
                 //                 
                 // Convert the camera plane from local space to world space
-                const cam_plane_x = -look_dir_y * fov_proportion;
-                const cam_plane_y = look_dir_x * fov_proportion;
+                const cam_plane_x = -look_dir_y * base_fov_scale * aspect_ratio;
+                const cam_plane_y = look_dir_x * base_fov_scale * aspect_ratio;
 
                 // Cache the calculation of the wall height scaling
-                const wall_scale_factor = (h * tilemap.grid_scale) / fov_proportion;
+                const wall_scale_factor = (h * tilemap.grid_scale) / (2 * base_fov_scale);
 
                 // Foreach vertical pixel
                 for (let px = 0; px < w; ++px) {
@@ -908,10 +984,15 @@
             };
 
             /// MARK: DRAW TICK
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             */
             const draw = (delta, viewport) => {
                 render_scene(delta, viewport, 1500)
 
-                draw_minimap(delta, viewport, 300, 250, 5, 2);
+                const ui_scale = viewport.get_viewport_h() / 720;
+                draw_minimap(delta, viewport, Math.floor(300 * ui_scale), Math.floor(250 * ui_scale), 5, 2 * ui_scale, Math.floor(5 * ui_scale));
             };
 
             const tick_rate = null; // TODO: remove input from being read on this tick rate
@@ -976,7 +1057,7 @@
             }
 
             const viewport = setup_viewport();
-            viewport.set_resolution(1280, 720);
+            viewport.set_resolution(_DEFAULT_VIEWPORT_W, _DEFAULT_VIEWPORT_H);
 
             // Keyboard
             ["keydown", "keyup"].forEach(type => {
@@ -1015,7 +1096,7 @@
                 button.addEventListener("mousedown", e => {
                     input.virtual[bind] = true;
                     e.preventDefault();
-                });
+                }, { passive: false });
 
                 button.addEventListener("mouseup", e => {
                     input.virtual[bind] = false;

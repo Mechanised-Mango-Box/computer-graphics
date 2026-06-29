@@ -299,14 +299,14 @@
 
                 // Collision mask
                 let flag = 0b00000000;
-                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] != " ")
-                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] != " ")
-                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] != " ")
-                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] != " ")
-                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] != " ")
-                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] != " ")
-                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] != " ")
-                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] != " ")
+                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] == '#')
+                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] == '#')
+                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] == '#')
+                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] == '#')
+                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] == '#')
+                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] == '#')
+                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] == '#')
+                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] == '#')
                 // console.log((flag >>> 0).toString(2))
 
                 // Penetration Vector 
