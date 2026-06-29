@@ -13,8 +13,8 @@ The lesser known predecessor to Doom.
 4. [Physics](./4_physics/README.md)
 
 ### Extras
-5. [Mobile Controls](./5_mobile/README.md)
-- different tile types
+5. [Mobile Controls + Movement](./5_mobile/README.md)
+6. different tile types
 - scope in (fov trick)
 
 ## Q&A

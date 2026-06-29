@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Wolfenstein 3D</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .box {
+            display: flex;
+            gap: 0;
+            margin: 0;
+        }
+
+        .center {
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hori {
+            flex-direction: row;
+        }
+
+        .vert {
+            flex-direction: column;
+        }
+
+        .viewport {
+            width: 100%;
+            max-width: 1280px;
+            aspect-ratio: 16 / 9;
+            image-rendering: pixelated;
+            display: block;
+        }
+
+        #controls {
+            width: 100%;
+            max-width: 500px;
+            padding: 10px;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        #controls>.box {
+            width: 100%;
+            justify-content: space-around;
+            gap: 25px;
+        }
+
+        #controls button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            background: #1a1a1a;
+            color: #fff;
+            border: 2px solid #333;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px #0a0a0a;
+            transition: all 0.05s ease;
+        }
+
+        #controls button:active {
+            background: #2a2a2a;
+            box-shadow: 0 1px #0a0a0a;
+            transform: translateY(3px);
+        }
+
+        .vert>button {
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .hori button {
+            border-radius: 0;
+        }
+
+        .hori button:first-child {
+            border-radius: 0 0 0 8px;
+        }
+
+        .hori button:last-child {
+            border-radius: 0 0 8px 0;
+        }
+    </style>
+</head>
+
+<body class="box center vert">
+    <h1>Wolfenstein 3D</h1>
+    <canvas id="viewport" class="viewport"></canvas>
+
+    <form autocomplete="off">
+        <label for="res-select">Select Res:</label>
+        <select id="res-select" required>
+            <optgroup label="Original Resolution (16:10)">
+                <option value="0">320x200</option>
+            </optgroup>
+            <optgroup label="Square (4:3)">
+                <option value="1">320x240</option>
+                <option value="2">640x480</option>
+                <option value="3">900x720</option>
+                <option value="4">1350x1080 (5:4)</option>
+            </optgroup>
+            <optgroup label="Widescreen (16:9)">
+                <option value="5">432x240</option>
+                <option value="6">854x480</option>
+                <option value="7" selected>1280x720</option>
+                <option value="8">1920x1080</option>
+            </optgroup>
+        </select>
+
+        <label for="fov-slider">FoV (Degrees): </label>
+        <input type="range" id="fov" value="90" min="45" max="120" step="15">
+    </form>
+
+    <div id="controls">
+        <div class="box center">
+            <div class="box center vert">
+                <button id="virtual-dpad-forward">⬆️</button>
+                <div class="box center hori">
+                    <button id="virtual-dpad-left">⬅️</button>
+                    <button id="virtual-dpad-backward">⬇️</button>
+                    <button id="virtual-dpad-right">➡️</button>
+                </div>
+            </div>
+            <button id="virtual-look-left">↪️</button>
+            <button id="virtual-look-right">↩️</button>
+        </div>
+    </div>
+    <script>
+        /// MARK: HEADER
+        //#region Santity Preserving Types
+        "use strict";
+
+        // BASIC NUMBER TYPES
+        /**
+         * @typedef {number & { __int__: true }} int
+         */
+
+        /**
+        * @typedef {number & { __int__: true, __range__: "0-255" }} byte
+        */
+
+        /**
+         * @typedef {number & { __float__: true }} float
+         */
+
+        //#endregion
+        //#region Struct Types
+        /**
+         * @typedef {object} Texture
+         * @property {Uint8ClampedArray} buffer
+         * @property {int} w          
+         * @property {int} h         
+         */
+        //#endregion
+        //#region Utils
+        const clamp01 = (x) => Math.min(Math.max(x, 1), 0)
+        /**
+         * Buffer Index
+         * @param {int} x
+         * @param {int} y
+         * @param {int} w
+         * @return {int}
+         */
+        const bi = (x, y, w) => y * w + x;
+        /**
+         * Buffer Index - Bounds Checked
+         * @param {int} x
+         * @param {int} y
+         * @param {int} w
+         * @param {int} h
+         * @return {int | undefined}
+         */
+        const bi_s = (x, y, w, h) => {
+            if (x >= w || y >= h || x < 0 || y < 0) {
+                // console.error("Out of bounds.")
+                return undefined
+            }
+            return bi(x, y, w)
+        }
+
+        /**
+         * @param {int} w
+         * @param {int} h
+         * @return {Array}
+         */
+        const create_rect_buffer = (w, h) => new Array(w * h);
+        //#endregion
+
+        /// MARK: PROGRAM START
+        (async () => {
+
+            const _DEFAULT_VIEWPORT_W = 1280;
+            const _DEFAULT_VIEWPORT_H = 720;
+
+            const DEG2RAD = Math.PI / 180;
+            const FOV_DEFAULT_DEG = 90 // source-like default
+            let fov = FOV_DEFAULT_DEG * DEG2RAD;
+
+            /**
+             * @return {Viewport}
+             */
+            const setup_viewport = () => {
+                const canvas = document.getElementById("viewport");
+                const ctx = canvas.getContext("2d");
+
+                let viewport_w = _DEFAULT_VIEWPORT_W;
+                /**
+                 * @return {int}
+                 */
+                const get_viewport_w = () => viewport_w;
+                let viewport_h = _DEFAULT_VIEWPORT_H;
+                /**
+                 * @return {int}
+                 */
+                const get_viewport_h = () => viewport_h;
+
+                let imageData;
+                let framebuffer;
+                /**
+                 * @param {int} w
+                 * @param {int} h
+                 * @return {void}
+                 */
+                const set_resolution = (w, h) => {
+                    viewport_w = w;
+                    viewport_h = h;
+
+                    canvas.width = viewport_w;
+                    canvas.height = viewport_h;
+
+                    imageData = ctx.createImageData(viewport_w, viewport_h);
+                    framebuffer = imageData.data;
+                };
+
+                /**
+                 * @param {int} x
+                 * @param {int} y
+                 * @param {byte} r
+                 * @param {byte} g
+                 * @param {byte} b
+                 * @param {byte} a
+                 * @return {void}
+                */
+                const set_pixel = (x, y, r, g, b, a = 255) => {
+                    const i = (((viewport_h - 1) - y) * viewport_w + x) * 4;
+                    framebuffer[i] = r;
+                    framebuffer[i + 1] = g;
+                    framebuffer[i + 2] = b;
+                    framebuffer[i + 3] = a;
+                };
+                /**
+                 * @return {void}
+                 */
+                const clear = () => framebuffer.fill(0);
+
+                /**
+                 * @return {void}
+                 */
+                const render = () => ctx.putImageData(imageData, 0, 0);
+
+                // probs better way/place to do this
+                canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+
+                const resolutions = {
+                    "0": { w: 320, h: 200, aspect: "16 / 10" },
+                    "1": { w: 320, h: 240, aspect: "4 / 3" },
+                    "2": { w: 640, h: 480, aspect: "4 / 3" },
+                    "3": { w: 900, h: 720, aspect: "4 / 3" },
+                    "4": { w: 1350, h: 1080, aspect: "5 / 4" },
+                    "5": { w: 432, h: 240, aspect: "16 / 9" },
+                    "6": { w: 854, h: 480, aspect: "16 / 9" },
+                    "7": { w: 1280, h: 720, aspect: "16 / 9" },
+                    "8": { w: 1920, h: 1080, aspect: "16 / 9" }
+                };
+
+                const res_selector = document.getElementById("res-select");
+                res_selector.addEventListener("change", (e) => {
+                    const selected = resolutions[e.target.value];
+
+                    if (selected) {
+                        set_resolution(selected.w, selected.h);
+                        canvas.style.aspectRatio = selected.aspect;
+                        console.log(`Resolution updated to: ${selected.w}x${selected.h} (${selected.aspect})`);
+                    }
+                    else {
+                        console.error("Bad resolution.")
+                    }
+                });
+
+                const fov_slider = document.getElementById("fov");
+                fov_slider.addEventListener("input", (e) => {
+                    fov = parseFloat(e.target.value * DEG2RAD);
+                })
+
+                return {
+                    get_viewport_w,
+                    get_viewport_h,
+                    set_resolution,
+
+                    set_pixel,
+                    clear,
+                    render,
+                };
+            }
+
+            /**
+             * @param {string} str
+             * @param {float} scale
+             */
+            const load_tilemap = (str, scale) => {
+
+                const rows = str.split("\n").map(row => row.trim()).filter(row => row.length > 0);
+
+                const w = rows[0].length;
+                const h = rows.length;
+
+                const tilemap = create_rect_buffer(w, h);
+                let i = 0;
+
+                for (let y = 0; y < h; ++y) {
+                    const ty = h - 1 - y;
+                    if (w != rows[ty].length) {
+                        console.error("Tilemap is of irregular size, must be a rectangle.")
+                        return null;
+                    }
+
+                    for (let x = 0; x < w; ++x) {
+                        const tx = x;
+                        tilemap[i] = rows[ty][tx]
+                        ++i;
+                    }
+                }
+
+                if (i != w * h) {
+                    console.error("Tilemap is of irregular size.")
+                    return null
+                }
+                return {
+                    buffer: tilemap,
+                    w: w,
+                    h: h,
+                    grid_scale: 10
+                }
+            }
+
+            const tilemap = load_tilemap(`
+#######################################################
+#   %             ###     ####     ###              ###
+#          %              ####                #     ###
+#          #              ####  #########     #     ###
+#   %      ###########    ####  ###############     ###
+## ###$$$$$###########                                $
+## ###################% %#####  #*************        $
+## ##########             ####  #############*      ###
+## ########## ########   %#     #############*      ###
+#         #   ########    #     #############*      ###
+#           ##########    #  ################*      ###
+## ###################    #  ##########*******      ###
+## ###################    #  ##########*  $$        ###
+#    #             ###    #  ##########*            ###
+#    #             ###    #  #############% %###    ###
+#    #             ###                  *     *#    ###
+#                  ###    ###########   *     *#    ###
+#                  ###    ###########   **% %**########
+#                                             #########
+#                                             #########
+#######################################################
+                                    `)
+
+            const player = {
+                x: 20,
+                y: 2,
+
+                rot: 0,
+
+                vx: 0,
+                vy: 0,
+
+                max_speed: 25,
+                accel: 10,
+                friction: 5,
+                stop_speed: 8,
+
+                radius: 3,
+
+                wish_forward: 0,
+                wish_strafe: 0,
+            }
+
+            /**
+             * @param {float} delta 
+             */
+            const move = (delta) => {
+                /**
+                 *     -strafe
+                 *       |
+                 *     --@----- > +forward
+                 *       |
+                 *       v
+                 *     +strafe
+                 */
+
+                const speed = Math.hypot(player.vx, player.vy);
+
+                // Friction
+                if (speed > 0) {
+                    // stop speed (stop scaling friction if lower than stop_speed - keeping friction high)
+                    const control = speed < player.stop_speed ? player.stop_speed : speed;
+
+                    const drop = control * player.friction * delta;
+
+                    const new_speed = Math.max(speed - drop, 0);
+                    const scale = new_speed / speed;
+
+                    player.vx *= scale;
+                    player.vy *= scale;
+                }
+
+                const f = player.wish_forward;
+                const s = player.wish_strafe;
+
+                const wish_len = Math.hypot(f, s);
+                if (wish_len == 0) {
+                    player.x += player.vx * delta;
+                    player.y += player.vy * delta;
+                    return;
+                }
+
+                const lf = f / wish_len;
+                const ls = s / wish_len;
+
+                const cos = Math.cos(player.rot);
+                const sin = Math.sin(player.rot);
+
+                const wish_x = lf * cos + ls * sin;
+                const wish_y = lf * sin - ls * cos;
+
+                let wish_speed = player.max_speed;
+                if (wish_speed > player.max_speed) {
+                    wish_speed = player.max_speed;
+                }
+
+                // Accel
+                const current_speed_in_wish_dir = player.vx * wish_x + player.vy * wish_y;
+                const add_speed = wish_speed - current_speed_in_wish_dir;
+
+                if (add_speed > 0) {
+                    const accel = player.accel * delta * wish_speed;
+                    const applied = Math.min(accel, add_speed);
+
+                    player.vx += wish_x * applied;
+                    player.vy += wish_y * applied;
+                }
+
+                // Apply velocity
+                player.x += player.vx * delta;
+                player.y += player.vy * delta;
+            }
+
+            const calc_diag_pen_vec = (circle_x, circle_y, circle_r, vertex_x, vertex_y) => {
+                const dx = circle_x - vertex_x;
+                const dy = circle_y - vertex_y;
+
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                const nx = dx / dist;
+                const ny = dy / dist;
+
+                const pen_diag_x = (circle_r - dist) * nx
+                const pen_diag_y = (circle_r - dist) * ny
+                return [pen_diag_x, pen_diag_y]
+            }
+
+            const calc_penetration_vector = (tilemap, player) => {
+                const scale = tilemap.grid_scale;
+                const w = tilemap.w;
+                const h = tilemap.h;
+
+                // Current Tile
+                const tx = Math.floor(player.x / scale);
+                const ty = Math.floor(player.y / scale);
+
+                // Position within cell
+                const rel_x = player.x % scale;
+                const rel_y = player.y % scale;
+
+                // Collider Radius
+                const r = player.radius;
+
+                // Collision mask
+                let flag = 0b00000000;
+                flag += 0b10000000 * (tilemap.buffer[bi_s(tx - 1, ty + 1, w, h)] != ' ')
+                flag += 0b01000000 * (tilemap.buffer[bi_s(tx/**/, ty + 1, w, h)] != ' ')
+                flag += 0b00100000 * (tilemap.buffer[bi_s(tx + 1, ty + 1, w, h)] != ' ')
+                flag += 0b00010000 * (tilemap.buffer[bi_s(tx + 1, ty/**/, w, h)] != ' ')
+                flag += 0b00001000 * (tilemap.buffer[bi_s(tx + 1, ty - 1, w, h)] != ' ')
+                flag += 0b00000100 * (tilemap.buffer[bi_s(tx/**/, ty - 1, w, h)] != ' ')
+                flag += 0b00000010 * (tilemap.buffer[bi_s(tx - 1, ty - 1, w, h)] != ' ')
+                flag += 0b00000001 * (tilemap.buffer[bi_s(tx - 1, ty/**/, w, h)] != ' ')
+                // console.log((flag >>> 0).toString(2))
+
+                // Penetration Vector 
+                let pen_x = 0;
+                let pen_y = 0;
+
+                // (flag & mask) == compare
+                if ((flag & 0b11000001) == 0b10000000) {
+                    if (dist_sq(rel_x, rel_y, 0, scale) < r * r) { // top left
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, 0, scale)
+                    }
+                }
+                if ((flag & 0b01110000) == 0b00100000) {
+                    if (dist_sq(rel_x, rel_y, scale, scale) < r * r) { // top right
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, scale, scale)
+                    }
+                }
+                if ((flag & 0b00011100) == 0b00001000) {
+                    if (dist_sq(rel_x, rel_y, scale, 0) < r * r) { // bottom right
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, scale, 0)
+                    }
+                }
+                if ((flag & 0b00000111) == 0b00000010) {
+                    if (dist_sq(rel_x, rel_y, 0, 0) < r * r) { // bottom left
+                        [pen_x, pen_y] = calc_diag_pen_vec(rel_x, rel_y, r, 0, 0)
+                    }
+                }
+
+                const scale_sub_r = scale - r; // cache for below
+                // overwrite if needed (will always be an equal or "stronger" repulsion)
+                if (flag & 0b01000000) {
+                    if (rel_y > scale_sub_r) pen_y = scale_sub_r - rel_y; // Up
+                }
+                if (flag & 0b00010000) {
+                    if (rel_x > scale_sub_r) pen_x = scale_sub_r - rel_x; // Right
+                }
+                if (flag & 0b00000100) {
+                    if (rel_y < r) pen_y = r - rel_y; // Down
+                }
+                if (flag & 0b00000001) {
+                    if (rel_x < r) pen_x = r - rel_x; // Left
+                }
+
+                return [pen_x, pen_y]
+            }
+
+            /**
+             * @param {float} delta 
+             */
+            const collide = (delta) => {
+                const [pen_x, pen_y] = calc_penetration_vector(tilemap, player);
+                player.x += pen_x;
+                player.y += pen_y;
+            }
+
+            /**
+             * DDA (https://en.wikipedia.org/wiki/Digital_differential_analyzer_(graphics_algorithm))
+             *
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_line = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                // find m = dy/dx
+                const dx = x1 - x0;
+                const dy = y1 - y0;
+
+                // use the more "aggressive" axis (longer) as the step
+                const longest_axis_mangnitude = (Math.abs(dx) >= Math.abs(dy)) ? Math.abs(dx) : Math.abs(dy)
+                // the move along "step axis" by 1 pixel while moving along the other axis by the slope
+                const step_x = dx / longest_axis_mangnitude;
+                const step_y = dy / longest_axis_mangnitude;
+                let x = x0;
+                let y = y0;
+
+                // since we only move 1 pixel in the longest magnitude axis(see above), we can iterate on it per pixel
+                for (
+                    let i = 0; i <= longest_axis_mangnitude; ++i) {
+                    // paint along the steps
+                    viewport.set_pixel(Math.round(x), Math.round(y), // ensure that it is the pixel position not a float
+                        r, g, b, a
+                    );
+
+                    // move to next step
+                    x += step_x;
+                    y += step_y;
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_rect = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                for (let py = y0; py < y1; ++py) {
+                    for (let px = x0; px < x1; ++px) {
+                        viewport.set_pixel(px, py, r, g, b, a)
+                    }
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_rect_hollow = (x0, y0, x1, y1, r, g, b, a = 255) => {
+                // Left + Right edge
+                for (let py = y0; py < y1; ++py) {
+                    viewport.set_pixel(x0, py, r, g, b, a)
+                    viewport.set_pixel(x1, py, r, g, b, a)
+                }
+
+                // Top + Bottom edge
+                for (let px = x0; px < x1; ++px) {
+                    viewport.set_pixel(px, y0, r, g, b, a)
+                    viewport.set_pixel(px, y1, r, g, b, a)
+                }
+            }
+
+            /**
+             * @param {int} x0
+             * @param {int} y0
+             * @param {int} x1
+             * @param {int} y1
+             */
+            const dist_sq = (x0, y0, x1, y1) => ((x0 - x1) * (x0 - x1)) + ((y0 - y1) * (y0 - y1))
+            /**
+             * @param {int} cx
+             * @param {int} cy
+             * @param {int} cr
+             *
+             * @param {byte} r
+             * @param {byte} g
+             * @param {byte} b
+             * @param {byte} a
+             *
+             * @return {void}
+             */
+            const draw_circle = (cx, cy, cr, r, g, b, a = 255) => {
+                const cr_sq = cr * cr;
+
+                // within an AABB do a brute force circle check
+                for (let py = cy - cr; py < cy + cr; ++py) {
+                    for (let px = cx - cr; px < cx + cr; ++px) {
+                        if (dist_sq(px, py, cx, cy) - cr_sq < 0) {
+                            viewport.set_pixel(px, py, r, g, b, a)
+                        }
+                    }
+                }
+            }
+
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             * @param {int} width
+             * @param {int} height
+             * @param {int} padding
+             * @param {float} zoom
+             * @param {float} circle_size
+             */
+            const draw_minimap = (delta, viewport, width, height, padding, zoom, circle_size) => {
+                // assume it is always aligned to the bottom right (can make this a proper thing later)
+                const x1 = viewport.get_viewport_w() - padding
+                const x0 = x1 - width;
+                const y0 = padding;
+                const y1 = y0 + height;
+
+                draw_rect(x0, y0, x1, y1, 10, 10, 10, 255) // BG
+
+                // foreach pixel within the "frame"
+                for (let fpy = 0; fpy < height; ++fpy) {
+                    for (let fpx = 0; fpx < width; ++fpx) {
+                        // frame pixel -> centered on zero
+                        const px = Math.floor(fpx - width / 2);
+                        const py = Math.floor(fpy - height / 2);
+
+                        // Map pixel to world pos (and offset to center on player)
+                        const x = player.x + (px / zoom); // zoom can also be thought of as making the tiles bigger relatively speaking
+                        const y = player.y + (py / zoom);
+
+                        // world pos -> tile pos -> tile index (floor)
+                        const ix = Math.floor(x / tilemap.grid_scale);
+                        const iy = Math.floor(y / tilemap.grid_scale);
+
+                        // lookup correct tile and render
+                        const bi = bi_s(ix, iy, tilemap.w, tilemap.h);
+                        if (bi == undefined) { continue };
+                        if (tilemap.buffer[bi] === '#') {
+                            viewport.set_pixel(x0 + fpx, y0 + fpy, 200, 200, 200);
+                        }
+                    }
+                }
+
+                draw_rect_hollow(x0, y0, x1, y1, 255, 255, 255) // Outline
+
+                // draw player (always center)
+                draw_circle(Math.floor(x0 + width / 2), Math.floor(y0 + height / 2), circle_size, 0, 255, 0)
+                viewport.set_pixel(Math.floor(x0 + width / 2), Math.floor(y0 + height / 2), 0, 255, 0);
+            }
+
+            /**
+             * @param{Tilemap} tilemap
+             * @param{int} ox       
+             * @param{int} oy      
+             * @param{int} dx
+             * @param{int} dy
+             * @param{float} max_dist
+             */
+            const raycast_dda = (tilemap, ox, oy, dx, dy, max_dist) => {
+                // Scale positions to tilemap coords
+                ox /= tilemap.grid_scale;
+                oy /= tilemap.grid_scale;
+                dx /= tilemap.grid_scale;
+                dy /= tilemap.grid_scale;
+                max_dist /= tilemap.grid_scale;
+
+                // Cell positions are always ints
+                let cx = Math.floor(ox);
+                let cy = Math.floor(oy);
+
+                // Diagonal distance from the edges of x to x+1 (or y to y+1)
+                const diag_dist_x = Math.abs(1 / dx);
+                const diag_dist_y = Math.abs(1 / dy);
+
+                // Distance to nearest edge along said axis / distance travelled along the axis
+                let edge_dist_x;
+                let edge_dist_y;
+
+                // Direction to step in per axis
+                let step_x;
+                let step_y;
+
+                // Calculate initial step (to a cell edge)
+                if (dx < 0) {
+                    step_x = -1;
+                    edge_dist_x = (ox - cx) * diag_dist_x;
+                } else {
+                    step_x = 1;
+                    edge_dist_x = (cx + 1.0 - ox) * diag_dist_x;
+                }
+
+                if (dy < 0) {
+                    step_y = -1;
+                    edge_dist_y = (oy - cy) * diag_dist_y;
+                } else {
+                    step_y = 1;
+                    edge_dist_y = (cy + 1.0 - oy) * diag_dist_y;
+                }
+
+                let side = 0;
+                let perp_dist = 0;
+
+                // DDA loop
+                while (perp_dist <= max_dist) {
+                    // Choose the axis to "snap" to which requires moving along the diagonal the least
+                    if (edge_dist_x < edge_dist_y) {
+                        perp_dist = edge_dist_x;
+                        edge_dist_x += diag_dist_x;
+                        cx += step_x;
+                        side = 0;
+                    } else {
+                        perp_dist = edge_dist_y;
+                        edge_dist_y += diag_dist_y;
+                        cy += step_y;
+                        side = 1;
+                    }
+
+                    const bi = bi_s(cx, cy, tilemap.w, tilemap.h);
+                    if (bi == undefined) {
+                        return null;
+                    }
+
+                    const cell = tilemap.buffer[bi];
+                    if (cell != ' ') {
+                        // The horizontal position along a texture (x but for a texture)
+                        let tex_u;
+                        // Find the position that the ray collided
+                        const hit_x = ox + perp_dist * dx;
+                        const hit_y = oy + perp_dist * dy;
+
+                        if (side == 0) {
+                            // Hit a wall aligned with y-axis
+                            // So u should be based on the y position
+                            tex_u = hit_y - Math.floor(hit_y);
+                            // Reverse position when hitting from opposite direction (un-flip so the texture faces the right way)
+                            if (dx < 0) tex_u = 1.0 - tex_u;
+                        } else {
+                            // Hit a wall aligned with x-axis
+                            tex_u = hit_x - Math.floor(hit_x);
+                            if (dy > 0) tex_u = 1.0 - tex_u;
+                        }
+
+                        return {
+                            side: side,
+                            cell: cell,
+                            cell_pos_x: cx,
+                            cell_pos_y: cy,
+                            perp_dist: perp_dist,
+                            tex_u: tex_u
+                        };
+                    }
+                }
+                return null;
+            };
+
+
+
+            /**
+             * @param {string} b64
+             * @returns {Promise<Texture>}
+             */
+            const b64_to_img = async (b64) => {
+                if (!b64.startsWith("data:")) {
+                    b64 = "data:image/png;base64," + b64;
+                }
+
+                const img = new Image();
+                img.src = b64;
+
+                await img.decode();
+
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
+
+                const { data } = ctx.getImageData(0, 0, img.width, img.height);
+                return { buffer: data, w: img.width, h: img.height };
+            }
+
+            /// MARK: Textures
+            const TEX_WALL_STONE = await b64_to_img("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAABGdBTUEAALGPC/xhBQAAAv1QTFRFTU9Xc3R9iIqVY2ZvQ0VLhIaRam13SUtSZGduSkxSe32IYWNreHuEbW95fH2HcHN7a254j5KcbG9+h4qUYWNqaWx2cXJ9dXmFbXB4hIeTeX2JgIKNZGVuREZMe3+LeHqGeXuGiYuWaWx5cHF7aWt3cXOAYGJsa259Y2VzZ2p3XF5mjI+benyHaWp0g4WSW15lR0hNQkNKb3B6TE5VTk9VXV9nX2FobG13UlRbfoGNXF9mYWRrWl1lQ0VMc3aAa213dniDiYyYfYGMhoiTcXR+cHJ+ZmlygYOQR0lQfH+KdHaBYGJpfH6JVlhgc3aEfX+LhYeSc3eEc3WBfICNaWlzeHqHdHeFcnWBbnGAWVxjUFJYfoCMY2ZtbW54SktTWFtia2x2d3iCT1BXb3KAVlhfV1phX2JqSEpQSktRVVdfenyKeXuHgoSRZWhxW11lV1lgdniGP0FHfX+KVVhffoCNhIaTZmhwaGp0en6Kh4mUdHiFam16d3mHfH6MZGd1cnSDeHuHbG98cHOBeXyIcXSAcHN/c3aCf4GOeXuFS0xTdXeCdnmHc3WEbG54amx2Z2l0QEJIdHaFZWh2a257dXiES01UWltkVFZdUlNaUlRcc3WAZGdwamx3d3mGTU5Ve32LcnWDdXiGaGp1dHeDWFpibG55i46ZTlBXZmhycnR/io2YUlNbcXN+foGOcHJ9eXuJbXB9jZCbU1Vcd3qGWlxkb3F8hYiTTU9Wf4KPeHqIb3J+V1lhYGJraWt2UFJZaWt1YWNsbW96dXeGfYCNdnmFiYyXWVtjZWdxa214Zml3XF5nZGVvh4qVZ2lzY2VuVFZeg4aSfH+MhomUbnB7W1xlUVNaiIuWYmRtZ2p4W11mhIeSZGZwX2BpX2FqgIOPXV9ofYGNT1FYe36KXmBpf4KOgoWRe36LgYSQaGt5en2KfICMfoKOfH+Len2JaWx6eHuIeXyJam17d3qHdnmGa258dHeEc3aDbXB+bnF+bG99dXiFcHOAcXSBcnWCb3J/6sqI2gAADOdJREFUWMMlVwWU7MpxVeIkdtAOc+JwYmZmZsbPzMzMzPSY/ZiZl/ctM+/ODvOI1VIznJSe5+zO6Gimq6vvvXWrZJVWLuW2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");
+            const TEX_WALL_DIRT = await b64_to_img("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");
+            const TEX_WALL_SAND = await b64_to_img("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAABGdBTUEAALGPC/xhBQAAAvRQTFRFaWBYgHNsqJ+Zo5mSv7Wusaegg3RremtijoJ3r6SdnZONh3x1l42HwbiwpJePhnpyj4F208vGhXpyqqGYs6mjeGtje2xlsaehy8G7r6afo5eOn5SLXFNNm42En5CGinpxzsbBin52kYF4dWti1M3Ikoh/mYqArqKYhnp0nY2DoJWMoZSKY1xUrJ6WkIJ4nYyAu6+ogXZuzcW/0svGdGdhoJCGf3Boq6GamI2Fp52Vmo+HfG9ofXFqfm9nnpOKkod+dGdgjoN8i4B2lYZ81s/KY1lTgnRtqp2Wm4uDnZKKnZCGZVxVlIV8opKJjn51em9nkYN4hXZtrZ+XqJqRkIB2mIqAin1zlYd8iXpwl4uD0MjDeGtlcGZedWpirZ+VnpGHnY2BYlhSmId8n46FaV9YoJWP0srGZl1WysG7h3x0hHhwqp+XlYmCin11ppmRfG1ll4iAjHxyjYB3jH52gnRre3Bomo2DnpGIf3NrqpySi351dmlipJSLrJ2TjoN6pZaNqZqSwbewuK2lyb+5t6ujw7mybGJay8O9em1mx723fXFpf3Nsd2pjgHFpvLKqh3hwvrOsnI6Fg3dvkoZ+jYF5qpuRinx0iXtzhndvo5OIno6CgXVuk4N6oZGIn46Dmoh9xry2dmpjvrStuq6mg3VsjIB4a2FZtamhbmRde29nfnJrfnFqsqWc1c3Jl4yEoJKJj4J6hnlwfHBomYqCloh9s6aeopKHxbq0u7CogXNqvLGpkIR8bWNbjoF5n4+Ej4R7pZaLsaOboZGFmol+m4uAm4p/ua6mj4N7lIiBqZqQqJqPppeMpJWKgHRth3pxi352k4d/vbKreWxlo5SJd2tkjH93iHx0qJmOiHpysaSckYV9loqDr6KZsKOar6GYrqCYnIuAnYyBrJ6Vno6DnY2Cq52TrZ+WraCXrJ2UqpuSqpyTqJqQn4+Fn46Ep5iOqZqRoZGGopKIppeNoJCFpJWLqJmPo5SKppeOpZaMo5OJoZGHpJSKuXMlSAAADI9JREFUWMMlV2XQHFeS7MM9vj1mZl5mZmamWzAzrpmZmUkGyZJt2bJki8lCi5k+GGzufv2Y/1yOL6JjIma6p7peVWZWVjLvmQUH582/+7PTv3T8++Ye3TN96N2/8u7Tnlxw+Jb5t26d2nvoyScPLVqzdWru8+9IPnni9auPu/GtJ+99z/G/OLVr/8EP7Nm65/Qnk/OvfeqmZXNuePrqZVet3PLss7dvyWZeWH7TNW87adlVW97y9NWnnnztli3Ll295atkNJ7z9hE8svOak6375qquWvW3OnGuue/qpt2x5b/KR4SA1zX3v9LOV7hNWWqeEkS4yZjyL6mOrZEgZk7L1PNKoXDS67NyMFcKwupG7k7emMpWuktuKvKZNqRU+rSuryFUMkR/3rJFEMq19QAQZovfVjO5eKEy0LITxccmHx3HMRo1xir7gi34QM0Uwttc3nLeSsM8/FB5uOSu05M60bRuCt0WRFzYK53Ivr0+mguKhsIoa+dpsX5msksEY3I6xJZvWzttI2rXIwI29iCy0Q+l90witO51x1Rerk62B85BvP1CUoiiEsVZwxY0wrijJWJIPfCMdp0TyQGRoZe0Jnqheq5WuXBW8jruSvTxwVee2azSNPOCQwVmrrRFk2BKy/5U0JeOWoRyBpHhCNrPPao38VV3jt+eTw4Lx0cgFRkKVacECD1ZfWfRoIMyH8f7vjH82frhlMggnWYc32OKFTgjd0aIzPD6XvCz9KNfDAQLYxhNpOTH57Ne6MWdBhPbgEkLSMfJn0jlpPfdV2Su0E51rWMvj88k6Pw7R+TQY/28pytyJdCDzUhO+ISrWvvzf4/Hj47EMQYrggupd5kba1p3d/vU6oD2Hk0WcBB9Syf/n8eA9abVux+1MHkkMDy0N7eUvj9HNMScpU8oE2s+E68/8V13OFhQFY6cli4aEe7Zp4MnjfimLY98Zb2byTnHm0YWL94wlAwzHqcqsj1rl1I2O9bJ6ttS2ytSa5OjG1KDDg2E0XhLOSUd3dhnVKjKk0p6+hyDDNqpQ5T7QmSz6nNKZ8tWZLNelDvcmRzePL+3Mj4eDcMSwTQ8H4ka1JDp3zEfU/pL/IMMUtRd1RwMrCuuYHhV1zGfzXETJDyaHh0S2wycGg2DGwzTI9Eitw8DU2hsgj+1/haQ/Bgt4Y73lo6Kz3vleI8qZfukei2xBcnRs4mDjICXMtMO0HZpKW2WAE+OBkOGtrwwBojgpmjjWlbl3uJ1bU79WNoKy8fuT3U+wuNNLCc6lhLQiRheVQgx0zvsNlyxh7CHrstGxgtVVFBy3s0wpJ0JZ5ixdnBzcCI6COJ4RIX9KjFeh27Qxgssq+himv8UZmGtoj8YrnLMguW9GWZMbVvbLLryefH9I2MafpY9xGcNgYATVzKQD61wMvuv83q3KqUzEbHRRZbXoPFhQ9HujTHM701d8Ktk/SNPNAYUINjAO2XAh8LF3oA0EKS7amqY0r5WitNaZZKYr3YiWua50rEYh3pN8FBQH1ILzrkYWE9oxI6XohAQt6d3fZaGqKk/Wd0oEH52rQdyqrkZ1xEvdhcm6MIwTqiuHwuHl3IDf3oiyZunSaG8+wxqVVV20oFpLta5oZ8uqo9EcADLkHyVzHwJLWmSuqVNSBm9M4MY4qpCLt4/8r1CuBoqcHjmnD3jIgMiyShtlVO3Zjcm94GTEXyBS3kPMoLtRWHWkEd5HNQnQaUq3XQQoBHdAZWWX2aahtOl08MrcmNzPpGKp7DqluOcgtXHGdYI2Gspo7aoHRNdt0zFI37joaVZVutFVVeaN5j6ae5MHWhLk5ieAmuihMGYiagrJdnaibPT1k6taUx+lVBWU2Eba4P91lQHKnoa4KjmUYmo8MQ7gjgGKEMVFd4WlUFdlRXfKH9BORLHU7xgjNZ1nICFudlWvoHG9KZ9L1jwMHA88lDhOeog8EOBI1XSdQxLudy9o9HZtd3Q2+jbYfKSL2lbau+YyG0SndiWHQHrJ5eT/HL2ICOGEpc2RDuJv9W8dpg0ObivqLOmC1tQeQZ1JxGwD7NhHcYSUQe8Ij0pEzCcjOVraaK2Qge5+/WVUvMLXrqOdNs7iltUQn7WKWxfkGck7zjxzxTMfd+avv3LH0U/tPnrHg+fd8eCTX777207t+MyScx44/OWj95977l/p5rFXdt/2xw8efeD+c87ZfeHzix8F+M/6wjPvujE5cffhVYfnf/4vf7B4+sXXcb1+z6Ldp/7Zi8/NX7161651e0/5zenpF+/94fWr/+Hu6b3T01N4ZPr1P/yT056fd/2JB/efMvfl5OCz1y6/7obf+94N1y3ft3LfvttXPn31vtlX912zcOHCPz3pt+/8jePvfOrOZX/7j5/43k1PTW6u3Hfn7ftePbbyphMWvn3OnOVXfzq5J23R452YDGihVThsawcuNvcJWlNKp99D9XZQYDsQ3Flw2QpzqbMo9gFApiW/kHwdlW9drR3XdDIjR4UgA+ZBLdttb+j7PizAvgmaK42+CKecj+gpFwoA8uzm5KURg8YUvcqKxoFnVW6DCZt2sg3rEaU89ff1EZRdN/Ub2BTRWbTZOSjuYBLg/cmUaZuQFbMZrSqLxiE0h1lIiQlNU5fvfeSNHmqKaWYnBkc5XDuUUoOUexl2JVPgYGu7PKM4adfQkgKPGvTydkKbf/mB1ugoBSO0nZwd757QtWk8O+CCmUoOAcVEiyPgiHa1KEuzVLVlze/bRmsovP+hFshY18B/B4hCHUxUDW0AOSFiuDj5c2lqzw2ztK5VXfkQtIs/0l7bDI5N/PO/NioK1dWdU/H/x4UXtmoE5CtqHxck35TM7oDf0oKWTjRgIaxL4wS3dQZLt+6ftDPMZKM3AmAogLPAs7AQH+/aeEuy22G6B5pNAG9VZWAhvLV2pwTzKff3TEHpDEcnOXcHUAFMtpjZaGEk4QbCx5K9wo8aDsuCMpY+g8dhJS2PXHmFq0YVIWtWTTofJlLC4gRp0EJvwCoMX/CYTCWrouv3HHMT51JABSV0RNf35XXsMqPU1r2x05iV1nZEKk+rTrXEOMhuG1L0b00y1+uyKGXI67rsIAstxNQK2qujFtCGf78Q7sFNLjckjUcT2CbeQf+4w/Diwz3JXa3P61LC/nnMD7jRiIgxPwYvow1nn/5Pr5T3/I3CCUhUF2CXPLwcj0L4zYuTlySnGCOzNLocsDdtWa5/TRezZaUwowbkJySabj2OYCdiUjmoF1wvkicpEXH8keTnGMex7M1gdvSMYkrgPBrPw6zzwZCknwQzMCNpqVp8bMMUYW0QsMEDDCGW3ooA3KtRPlvYshh1MuoiZ77qassYGw4k+QmfyD8cNg0+G1nmNxDvtkUIqWtsGB5MLva0tqN65tV8pq5zr8peE1he4a0tx8j86WoYDZzXgiVaYEEADSG7toX5hq8d/l1yuiuBu3omK3uv5aIecei3yCKcVQt/N370fMlZ5MY2+SyqQKEdZiccQCQETfZyXTKFNUI2KFpdFoUTtKAMNoalhBNEIF/YJeMBkICJvIfaU42hj+qiV9JMNpI1yV8EPwb24H6pEiN3Wc8zBcOM/YRgvSAPrmu9E/A6dFRgAnUag5w95iy2IguSwO6/FENKKGga3ajIqgBuMTSbGQQggezZI73AmA3bC9SZRY3s62pngCmmxUj57yffRmKiaAR8hEURZAtL7m0HmxLWtowcOtR6Ay7UvSK7kkJMvK7KEfyTsaMcXy5PvgsBzWpQENbu1T4451EEfDPwOVg4zv/spJZciwamYMIh+E+RYTFrikzDEl6OIzRgc8CBqmMZmEtC7ScmF6OWYVXYf8EYtgUOFabJ2Uuherzr923ZX69zuACzOPm5K2CioZRWVDjgeDMWM9dFaS3naxnZfxfZLLkAyBHAmLIOvH/sGPGVpQXgEG5JvgYiYqQQU5Rl6ScbZtsq6E3XR+U28EfuwhYDVLn+bONMf1a1aPYL2nUOqAuOzEs+k3ojd7D2R8cMPPAbuw1kNxjIrodlm/41uDuoia1LDJiGuibP6lGRX+SzxjA2Ppj8aktrgDOawqttEQGwFWHOg6+Mt2Hth55TKuDiRgWjYLhyxWfr7Fj8Yl07OU4PJ5+aTIFg23bUozXWIufAmmi43BCB2Mc/99w7OZZoqbFTKvTGd5ikOp/1ccZ8Mcrxh5JbP/jBFW9aseI7S4pri46Fb/7939x/9KvnPfrol85+8zMrzrvt5vm3Hb3jq7ededZLr3xjyVnfWnDJLc+s+MoFv3PGXZ87911nf/xLZ9/8f0ckBpvRYa51AAAAAElFTkSuQmCC");
+            const TEX_WALL_BATH = await b64_to_img("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");
+            const TEX_WALL_WOOD = await b64_to_img("iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAABGdBTUEAALGPC/xhBQAAAwBQTFRFHxkWRjkuYU5COS8pX0xBTEZCbWBYVU1IJyIfMismTEE5V0xFNy0nY1FFbWBZLiciYE5ENisjST02OTAsRTo0UEQ8cmlhU0M4NCsnSkQ/Y1BFVk9KUklEMykhSD85SjsxcGVeRDo0SEA8QTcwYFNMn4+Hk4R6OzErOi4mPTUxb1pOgHVtQzs3NCwofXFpn5GHm4+Fl4qAWEc8QDMrPTAphntzZl1Xh3pxintyhXhvlIZ7jX92OCwlOjItOzApYVlUWFFMdGpkQjkzbGNdRT03XVFJkoZ/nI+Hi353lIZ/PzIqSDowh3x0Y1tVXldSYlBEXVRQWUc9QDk0hHlyW0k+PDMsTT0zmo6FkIN6jH92oJGJkoZ9m46GSjszXVZQRT46in93Zl5ZjH53oZOKin52joB3mYuDPDQvXkxBf3JriHt0jH52nI6FUUA3YFhTeG5ngXZvaGBaoZSLQzYtjH51eW1ml4qCjoB2koR7i31zkYN8QjUsVUQ6RTcuRTgva2JdpJiPdmxmgXVtiXtzUEE3l4mBWEc9U0I4WVJNhHhwi394hnpyo5WNh3tzmoyEkoV9TD00e3Bpl4l/lYd/PjYxXUtAW1RPWlNOcWhiWkk+fHFpi310kYV9koV7mYuCeW9oamFcn5KJiHx0nZCHnY+Fk4Z+X01CTj40b2ZgbWRfhHdvVEM5npGIlomBbVlNf3RtfXJrh3pyno+Gj4F5dWtlk4V9UEA2ZlNIcmljj4N7mIqBloiAa1dLV0Y7joB4mIqAin12lIiAmIuCm42FRzkwSToxTD0zgnZvmYuBmoyCk4V8lIZ9m42Dl4mAXEtBVUU6iXx0lYd+Tj81Tz82VkU7hnlxjIB4i352kYN6loh/koZ+kIN7aVVJalZKV0Y8WUg+joJ6kIJ4bFhMiX11jYF5kIR8nI6EjoF5kYR8mYyDk4d/VEQ6jYB4j4J6U0M5UUE3ZlNHW0pAXkxCSjwyZ1RJjH93XUxBZFFGZVJHX01DUkI4Y1FGYU9EYE9EYlBFYE5DqAfyzQAADy5JREFUWMMlVwVYW1navr+u79jO7I67+1SnbtNO3d3doWWgQKFoS3Et7u7uEjRoCBADEuLuntx7c20Ps4cAT5LnvPfz9/2gvWzOc0dIZeUeuuN8yG909ij9RGXl6Nit5yF0h2P0N3CePAkJWf7vcZw4cd7BTh4bq2TT9zg8zzkddPpvUIcbJVG8wfNFMofDqWTTPJ7ZWYNBfEvisXgMtR6D56kZfPJPDzhmj0QslnDFh82W81/ct5KEkyTuQ8k2m5t0Cju+cIxxfmJbjtG4XJrBw531LF+fna0F9zjLtz215lnJ7Cx3tpZL4zhGvwhGSEroRDsgthudoRBhx8onyR1m7jEJN1siEXNt2bPmWfCq/afZAEzx/PSTwQwQPGaDwSw+zBk9v6cDs1IE4bZAe92Ym+pz0lauHJ3lSNI9tIp0j0H8v7cMtWYLuGr2mJ+CP7d+8tRyAZQFvDeIPckhrzgQBJbj1GHIQcAEIbdyV24KMkiOGQzHspcfM0vjGmYtFrbF8/SpZdkC7tNaGjDAw1mGZNNXvFLpFBFYA1ILvU/gBCV3Pt+zIsRCA/aJaeZZs4FmoKXbLE+BCU85AMJjNi8b4zlWazFwgw3Bjj0b2LCQwjux55ANJwhMKA/esGHPkyf0UQc4JzziyhOOE/TRSpCxsbFROt3yvsMRAr5md7Dfr7Qkr9iz4SUbLBKRBOGBbAiF9/XBFuiPL7324j/nw3f2v/fRjiM3//Xtt/8CPze/+WbzjovvvR39zns7Nn7++c139v/hyMY/3RLKO0mCfA45ULxP3mlL/uOLN7fs3+y1v2j15stZbVmh+x9efrj94erVqy8/vHz5YVFoaFFW1/a2qqquwhTvqs1/eGFBnJSdAC6wcTeFIST924/ePrR/e3WVd/j20KzGpsKqrqy28KyqanCqqqre2Nr1RuFW762FcQ8KG9uqV7/9wgCCaMepUchC2AmSmtm78c2M0PCmnKZVq75LSVFea/RrzGnKyfHz82vz8w5vSwlvK2xsako5em1fY86DwtDMbekNQorCKAckttkJnLKFvHhnf/h4c39kv/bKwmD9TuVgXExcRE3j7du3IyIiGse/y4mJjRsfL6lR7mt88HXVheNwXyciFGGjkEEyQyIY9eTLzOqcOf8pluyGjtGrq+993L8QyGte8/PPPF5Cc01JCa9bxYuJ1Ut5NZceeGd5fWwVyTv7nMRe6Gm2G7OS6fQvM9vGXTLGBEvtUze1eKOUJVvUXr97em1k5M+8uchIo0DazeMJBNcU46uONlVHb8PlcvBcwgGxbXbUPiOpfC0j67bvuumJ1O99Svky/q4b+VNTmtbrdyPXrllz9+6VuW7NnDJBoJ+fj4tJaQzN/DC9oQ8mMAp0o5vEbNm2mYsZXbdPr5sYUF+tU08ye3qYjHV82am1uZFrfE/3G8uHdENGnTJvZ/Ovl+Kamoq2/CO9z4kIKTcBJUsoDMMp8ZHo6u/8102cuXevbHK6Z5gJXFhcPHU98O5pX+OSZmjo5FBzXt6gi6dQjB/NeZj5cTDR1yen3BKILUEJjCQ7bmaGxl2XDbSo7w2UfubP72EFsBgB+a0yk8a3v3/piuqRanDetWBsViREPGiquvDqc6qvoc8KXOiYsVMS+4xlY3RWRGB+2ZkzxQMF62S6nh7WYn7abpnWtGTS1JuM+iGtal7qUjb/qohZ1bjVaweXsH7VgBGglG0zM9mUm/Za5tYI449lanXLwMBEAKuHPyVbnMoPaG2NXKt/pO83qpbypAIe7858d0xcYdXmHZZOTNhHYTTIAgYSandH/TWz61Jratn0xL3J1ALG1HAPU7bYXl4vSzrtq9frr6wxShfmmxMGBwelR7/2rj7wD4mQJDECFkP3CRuGUvaov17oOnoqdbJsWj2ROsHkD5eOLPrL8hmLj7X9pnrB4wWTsRsUk3JeqoxrbKrO+NBMklYnQXGh+ziFEHbKc9MrnHc2dVKtVk8PLAMk8hcZi1qGdknbahrSL+UZpXqXSzmXoJBea8ypOrDtOUxiIpLqgDpAEjAKZx/xaqs5NVDWcq9lZFKtYyYmMqemps62ax9r25P0gqSzLoE+wTW3oMq7FPu19/YDH9KsTorEyGSITaEw5aZOfHOha3xxYrJlWq0umE4cHknsAQDluxkAIF+gvRLYPNftUsx1q7qVJeN+IAbHnE4CJ8kxqNLuJtBsyeiRQ1k1+cCCycmRgumC4ZEeJouZ1tvbu3uoVyBwGSPnXNr5ay6jQhlb8iClyutjUMqkk8DGIIObQlGJ+z8AE7s+/d0Cne5cD5PPSitP620fal/SmHJzNT8PziuUO1UqVcmDwqID2w7KnRhM9o1BUW4cRW342JFDXTGygTJQCKCUR86N3HjGZ6adbe9t15cLkpZaTZqFOV6zUb9TmRf7dUp15kcVIoRArJgDQt0oiuIgCxeyIk5NlH6qnp6eVut+BxjuLU+r3w0A6gVLeXkuI0/aLFVKFQmN4Q+3/J/ViuCAECwQx+2mCArhHD/UFZdfUFennpgsmB4ZGbnBYv2Y1pv2aEi/Wz+U91hlkqqU3XMLv87HLruQ8TEHw60wAbjxvNsNqAWmfX6hK+6suvjMvemy6YLERB0zjT/8rDetd0hbLtBrH6tUUmMzb8E4P9997WtQSDvOk5gVQ+3/hJ4AcgZEO3YzI1yhLb165vuWyc/W9QzrEp8tA7SnDZUDABCDpW7pvFI5ByxIeJASmvHRGEIcJFH0PhRis2OAWyqPZ2Tt0/5QfKZFPVCmvrcMMKx79KiXWa8vTxIstYLogzoenBucv3R02YWLe63A8GUAuttOoRgWvPHtrPFTP5ReLf4+Vf1ZAX9khKk7+ay+vrde3w5c0KoEeUal0rUAcjne1AYAHCQgNrvbAzlwGLPDItrN6DaFtjjsanxYGeszFqunh8//8Vl9b9qQdglYoFXlqaRKpdQ1OFgy3uRXFH1kDJuhKJx6Don7qL8ddMr/+/iFrn3ak2HxPvGlAwX868ypRVY+Y7fuUX15e5IWBFEg1ShdRpfi198tyDxuoGwUSP8sZCNRJyWSWzcdCFe0nyy+OtkyMjFZyl8EvTi8HIb6+vKkpCUAoDEqr7nm7gwqxnO6HmZuOmYD2UMJMQAgKdTa+dYmr/BVrB+uxsdfHRgoGGHIAqaYOmZ9L2NI375kMiUJBFKT0uVaUAzGLQNEH68gqYMwQYohLonh9k4k+3+8tq5KKq4LiweVlFq3izVyY/jko952xlD5EpiKWr3WKAUAxl9BDHK6Qg8dt2EkgmAEFxJTpJDESck3m70vaYt9QDfWTU8WJ/JvPDv5A+iF9t16k2bJuCQwuVzXFAuuwTu8iKa27Yc+t5EE1on/zQZ5UMqKUFTUNxfaYpPUV32+bykemLjXM8x4pjs5pU1rf1xu6l9wDQ2ZgPmKOfAbN94UXpT5opYgcQQlj0GVCCgIwnn4hVfbvvZhnxb15PREWeKNgQCWbvjZKVm7aWgJIDxWLc1FgoHiutNcEpGSUxS9rQMkEbeDsT6G4IBkEdrN/d4lOmb8mYnJgauldYnnevi6Hx6tzwU13GoyLhg1moXmawBg8E7CeEpX6JYdYxQJ+th9H3KQcEMDTAW/8EpR6n7cVTfQMlJWWrer7hyj52TA2QBZkkl7VuNqNZmkP/NcCdLu+ZLv/LqKtlx0oMQMSYBS3ot3ihpElPj4gbZL5Sx1S2oLcEE34nOOMcwPOLW42NoKBpLpilHjqqnpnnMpBmv8cvwuR18cRWAEw20GiIOScpGIQt/NCN2nZ5a2DNybLvVh1oUVn+P3BLRev54Lrve77ho1UtDKRjAPYm6nVF2O3sbGMQTBbdkgC0B0I6Kv3o2uvrSkK25JjY+fDrtXHF86wmDINGsDfQNb+7Wafo1J45qXSlWDNTG3vbNAFjrsM3YEc9sAscAvk6KGhnczu2L7f5ysawmLTy3V6XRTjKn8wMDcwLvG/tP9GmOeHjB7d560prn5tndVUcaXHBsKtNWMG7KQOI71yb96JbMt9pFu4tNiADBRmrirB8iDwED/XF/NeiNwwVTfHVki2Gnk3an5rqmtGgCgsBOhbG6IwoVCK4jCps2F+4aK1Z/Gh9WlphbvYvBZsnzZev/1vqfXL5z2vaJRqfTd8yop707C7ZytRRfedONIJ0LNSCAPLHLCiBDe5FWoGtb5hE1+PzKhruPLZFMymUyT63934fqC5i4A0A/Pu1zdipqS8cY2EESLnYRhnJIAuQ/I2SmHPz9QGKvT1fmEnWEOFBQwZIv5/jJNf66vb25/v+tKP6CER4qEBKmyJiamsevhlovvoySMESQXclBA6/YJaRszuhpNdSM+YQX8gamegMV8mf96f1fu2rlcV6tmbiFStVN/pybmUux4TURh1cNDF/fCVjCLgVZ2YMSMXYgEb4yu3qfXnWNNTfUusnpbr5v85+aaF9YAnamYv3OnJEa5cyhvcJwXOx7x4Gjh5S0X6XanXA7jHRCHpAhE7gx+6eabq1OU3Qu5uUu5t/3e+OSTT34B5/8b//73Dz74YPsnf3n99df//OdXX/3llw+O/vKX9778E9sql2NkZzBkpnBYJCTG3t0UFGQZfRIUFERfEeIYA9va044ODhcdpY/uHR2tPVwBzq3s9GBPFMqupK/8giYXdWIk3AF5MCBUnMSJDfRZ/C0cJ+2ECF+echhJUW67G8VBzxFyuRUkDbZinU4rehBBPckrazvlGAyTDigKloMNEnZsOO+xvZyOuoF4X2ZdCrHiRAWAIG9lowSCWDutCEySfUICFTnJ8yFBM8IGErYCrTwD8IFUHd3AEVe8VWEHVG1HMStOdTaQ2PLgJ3E7RYBnNXzlhMmGr2B7n2iG9NCDbEI5TiD23/UBiSIUJwgstshBAEehJAYS7HQC9iaACsKADkAwq1CEWJ1OIewUWfGKKM5/SYAhwEkLJLYLwf6GRa0we6IOVgCqx0khgpHLyyAY+3bQKDAFwxRBghmOAU/keIVzRmz+TSISIqh7xgNxCbKToqziPYaZCoysgGGwTOEYiVMUCVMvuwmwmS/H1NmAkNhBIKqt9nR3erY46HADiWOoWwyd5xosyRZLchC7Y2yUbbgVJbl1mD3qCFrxxDH21CPO5orTbdlR3PS3bFG30m0SSQXYrLMPm5/QKoI5tezK5H8Du2J4qDdhDe4AAAAASUVORK5CYII=");
+
+            const TEX_LOOKUP = {
+                '#': TEX_WALL_SAND,
+                '*': TEX_WALL_STONE,
+                '%': TEX_WALL_WOOD,
+                '$': TEX_WALL_BATH
+            }
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             * @param {float} max_render_dist
+             */
+            const render_scene = (delta, viewport, max_render_dist) => {
+                const w = viewport.get_viewport_w();
+                const h = viewport.get_viewport_h();
+                const aspect_ratio = w / h;
+
+                // Camera / player look direction  
+                const look_dir_x = Math.cos(player.rot);
+                const look_dir_y = Math.sin(player.rot);
+
+                // The camera plane (a line in 2D) defined by a 2D vector
+                //                      
+                //                         plane width
+                //                     +-----------------+ 
+                //                     ___________________ 
+                //                  +  \        |        /
+                //                  |   \       |       /
+                //                  |    \      |      /
+                //                  |     \     |     /
+                //   plane distance |      \    |    /
+                //                  |       \   |   /
+                //                  |        \  |  /   
+                //                  |         \ | / \___ FoV   
+                //                  |          \|/
+                //                  +           v
+                //                              @
+                //                            
+                //
+
+                // Scaling the camera plane based on the fov (a ratio between the distance of the plane and the (half-)width)
+                const base_fov_scale = Math.tan(fov / 2)
+
+                // The camera plane (x+ is the "forward" of the camera at rotation = 0)
+                //
+                //     y+
+                //     ^            
+                //     |          /
+                //     +--> x+   / 
+                //              /  
+                //             /   
+                //            /    
+                //           @----->  look dir            + 
+                //            \                           | camera plane
+                //             \                          |
+                //              \                         v
+                //               \ 
+                //                \
+                //                 
+                // Convert the camera plane from local space to world space
+                const cam_plane_x = -look_dir_y * base_fov_scale * aspect_ratio;
+                const cam_plane_y = look_dir_x * base_fov_scale * aspect_ratio;
+
+                // Cache the calculation of the wall height scaling
+                const wall_scale_factor = (h * tilemap.grid_scale) / (2 * base_fov_scale);
+
+                // Foreach vertical pixel
+                for (let px = 0; px < w; ++px) {
+                    // Map the pixel to the offset from the center of the plane
+                    const offset_along_plane = 1 - (2 * px / w);
+                    // Take the raycast direction
+                    const dx = look_dir_x + cam_plane_x * offset_along_plane;
+                    const dy = look_dir_y + cam_plane_y * offset_along_plane;
+
+                    const hit = raycast_dda(tilemap, player.x, player.y, dx, dy, max_render_dist);
+                    if (hit != null) {
+                        const tex = TEX_LOOKUP[hit.cell]
+
+                        // Calc the x/u position first since we already know all that we need for a vertical  
+                        // X position of the pixel that maps to the ray hit within the texture
+                        let u = Math.floor(hit.tex_u * tex.w);
+                        // Clamp within texture bounds
+                        u = Math.max(0, Math.min(u, tex.w - 1));
+
+                        // Height of the hit wall
+                        const line_height = Math.floor(wall_scale_factor / hit.perp_dist);
+
+                        let py_wall_bottom = (h - line_height) / 2;
+                        let py_wall_top = (h + line_height) / 2;
+
+                        const shade =
+                            (1 - Math.sqrt(hit.perp_dist / max_render_dist)) // Shade based on distance
+                            * (hit.side === 1 ? 0.6 : 1); // Shade based on side
+
+                        // Draw vertical
+                        for (let py = 0; py < h; ++py) {
+                            if (py < py_wall_bottom) {
+                                // Floor
+                                viewport.set_pixel(px, py, 94, 76, 74);
+                            } else if (py_wall_top < py) {
+                                // Celing / Sky
+                                viewport.set_pixel(px, py, 139, 186, 216);
+                            } else {
+                                // TODO: this maths could be optimised later
+                                let ty = Math.floor((py - py_wall_bottom) / (py_wall_top - py_wall_bottom) * tex.h);
+                                // Clamp within texture bounds
+                                ty = Math.max(0, Math.min(ty, tex.h - 1));
+
+                                // Convert to position in texture buffer
+                                const uv_idx = (ty * tex.w + u) * 4;
+                                // Extract as colour 
+                                const r = tex.buffer[uv_idx];
+                                const g = tex.buffer[uv_idx + 1];
+                                const b = tex.buffer[uv_idx + 2];
+
+                                // Draw with shading
+                                viewport.set_pixel(px, py, r * shade, g * shade, b * shade);
+                            }
+                        }
+                    } else {
+                        // ERROR - failed to hit tile
+                        for (let py = 0; py < h; ++py) {
+                            viewport.set_pixel(px, py, 255, 0, 255);
+                        }
+                    }
+                }
+            };
+
+            /// MARK: DRAW TICK
+            /**
+             * @param {float} delta
+             * @param {Viewport} viewport
+             */
+            const draw = (delta, viewport) => {
+                render_scene(delta, viewport, 150000)
+
+                const ui_scale = viewport.get_viewport_h() / 720;
+                draw_minimap(delta, viewport, Math.floor(300 * ui_scale), Math.floor(250 * ui_scale), 5, 2 * ui_scale, Math.floor(5 * ui_scale));
+            };
+
+            const tick_rate = null; // TODO: remove input from being read on this tick rate
+            const render_fps = null;
+
+            let physics_last_frame = performance.now();
+            let render_last_frame = performance.now();
+            let physics_delta = 0;
+            let render_delta = 0;
+
+            let sens = 0.001;
+            let virtual_sens_multiplier = 2000;
+            const input = {
+                kbm: {
+                    keys: {},
+                    mouse: {
+                        dx: 0, dy: 0,
+                        buttons: {}
+                    },
+                },
+                virtual: {
+                    dpad_forward: false,
+                    dpad_backward: false,
+                    dpad_left: false,
+                    dpad_right: false,
+
+                    look_left: false,
+                    look_right: false
+                }
+            };
+
+            const process_input = (delta) => {
+                //strafe
+                player.wish_strafe = 0
+                if (input.kbm.keys.a || input.virtual.dpad_left) { player.wish_strafe += -1; }
+                if (input.kbm.keys.d || input.virtual.dpad_right) { player.wish_strafe += 1; }
+                //forward
+                player.wish_forward = 0
+                if (input.kbm.keys.s || input.virtual.dpad_backward) { player.wish_forward += -1; }
+                if (input.kbm.keys.w || input.virtual.dpad_forward) { player.wish_forward += 1; }
+                //look
+                if (input.kbm.mouse.dx) {
+                    player.rot += sens * -input.kbm.mouse.dx; // -ve = non-inverted mouse
+                    input.kbm.mouse.dx = 0; // consume the delta after reading otherwise it will continue with no input
+                }
+                else {
+                    if (input.virtual.look_left) {
+                        player.rot += sens * virtual_sens_multiplier * delta;
+                    }
+                    if (input.virtual.look_right) {
+                        player.rot -= sens * virtual_sens_multiplier * delta;
+                    }
+                }
+            }
+
+            /// MARK: PHYSICS TICK
+            const tick = (delta) => {
+                process_input(delta);
+
+                move(delta)
+                collide(delta)
+            }
+
+            const viewport = setup_viewport();
+            viewport.set_resolution(_DEFAULT_VIEWPORT_W, _DEFAULT_VIEWPORT_H);
+
+            // Keyboard
+            ["keydown", "keyup"].forEach(type => {
+                window.addEventListener(type, e => {
+                    input.kbm.keys[e.key] = type === "keydown";
+                });
+            });
+
+            // Mouse
+            ["mousedown", "mouseup"].forEach(type => {
+                window.addEventListener(type, e => {
+                    input.kbm.mouse.buttons[e.button] = type === "mousedown";
+                });
+            });
+
+            const canvas = document.getElementById("viewport").addEventListener("mousemove", e => {
+                input.kbm.mouse.dx += e.movementX;
+                input.kbm.mouse.dy += e.movementY;
+            });
+
+            // Virtual Controls
+            const bind_virtual_button = (button, bind) => {
+                // Button
+                button.addEventListener("touchstart", e => {
+                    e.preventDefault();
+
+                    input.virtual[bind] = true;
+                }, { passive: false })
+                button.addEventListener("touchend", e => {
+                    e.preventDefault();
+
+                    input.virtual[bind] = false;
+                }, { passive: false })
+
+                // Mouse
+                button.addEventListener("mousedown", e => {
+                    input.virtual[bind] = true;
+                    e.preventDefault();
+                }, { passive: false });
+
+                button.addEventListener("mouseup", e => {
+                    input.virtual[bind] = false;
+                });
+
+                button.addEventListener("mouseleave", () => {
+                    input.virtual[bind] = false;
+                });
+            }
+            const button_move_forward = document.getElementById("virtual-dpad-forward"); bind_virtual_button(button_move_forward, "dpad_forward")
+            const button_move_backward = document.getElementById("virtual-dpad-backward"); bind_virtual_button(button_move_backward, "dpad_backward")
+            const button_move_left = document.getElementById("virtual-dpad-left"); bind_virtual_button(button_move_left, "dpad_left")
+            const button_move_right = document.getElementById("virtual-dpad-right"); bind_virtual_button(button_move_right, "dpad_right")
+
+            const button_look_left = document.getElementById("virtual-look-left"); bind_virtual_button(button_look_left, "look_left")
+            const button_look_right = document.getElementById("virtual-look-right"); bind_virtual_button(button_look_right, "look_right")
+
+            /// MARK: UPDATE
+            const update = () => {
+                const current_frame = performance.now();
+
+                physics_delta = (current_frame - physics_last_frame) / 1000;
+                if (tick_rate == null || physics_delta >= 1 / tick_rate) {
+                    tick(physics_delta);
+                    physics_last_frame = current_frame;
+                }
+
+                render_delta = (current_frame - render_last_frame) / 1000;
+                if (render_fps == null || render_delta >= 1 / render_fps) {
+                    viewport.clear();
+                    draw(render_delta, viewport);
+                    viewport.render();
+                    render_last_frame = current_frame;
+                }
+
+                requestAnimationFrame(() => update());
+            };
+            player.x = 200;
+            player.y = 20 ;
+
+            requestAnimationFrame(() => update());
+        })();
+    </script>
+</body>
+
+</html>
